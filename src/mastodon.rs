@@ -39,36 +39,6 @@ struct NewStatusPlain<'a> {
     visibility: &'a str,
 }
 
-/// メンション通知を取得
-pub async fn fetch_mentions(
-    client: &reqwest::Client,
-    base_url: &str,
-    token: &str,
-    since_id: Option<&str>,
-) -> Result<Vec<Notification>> {
-    let mut url = format!("{}/api/v1/notifications?types[]=mention&limit=20", base_url);
-    if let Some(since) = since_id {
-        url.push_str("&since_id=");
-        url.push_str(since);
-    }
-
-    let resp = client
-        .get(&url)
-        .header(AUTHORIZATION, format!("Bearer {}", token))
-        .send()
-        .await
-        .context("Mastodon notifications request failed")?;
-
-    if !resp.status().is_success() {
-        let status = resp.status();
-        let text = resp.text().await.unwrap_or_default();
-        anyhow::bail!("Mastodon error {}: {}", status, text);
-    }
-
-    let notifs: Vec<Notification> = resp.json().await.context("parse notifications")?;
-    Ok(notifs)
-}
-
 /// 返信を投稿
 pub async fn post_reply(
     client: &reqwest::Client,

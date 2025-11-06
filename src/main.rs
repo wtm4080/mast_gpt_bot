@@ -3,18 +3,17 @@
 // src/main.rs
 mod mastodon;
 mod openai_api;
-mod state;
 mod util;
+mod notification_stream;
 
 use anyhow::Result;
 use dotenvy::dotenv;
-use mastodon::{fetch_mentions, post_reply, post_status, Notification};
-use openai_api::{generate_free_toot, generate_reply};
-use state::{load_state, save_state, BotState};
+use mastodon::post_status;
+use notification_stream::run_notification_stream;
+use openai_api::generate_free_toot;
 use std::env;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use tokio::time::sleep;
-use util::strip_html;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -33,164 +32,90 @@ async fn main() -> Result<()> {
     let post_visibility =
         env::var("MASTODON_POST_VISIBILITY").unwrap_or_else(|_| "public".to_string());
 
+    // Streaming API のベース URL
+    // 例: wss://kirishima.cloud/api/v1/streaming
+    // 設定されていなければ、MASTODON_BASE_URL から雑に変換
+    let streaming_base_url = env::var("MASTODON_STREAMING_URL").unwrap_or_else(|_| {
+        let base = mastodon_base.trim_end_matches('/');
+        if base.starts_with("https://") {
+            format!("wss://{}{}", &base["https://".len()..], "/api/v1/streaming")
+        } else if base.starts_with("http://") {
+            format!("ws://{}{}", &base["http://".len()..], "/api/v1/streaming")
+        } else {
+            // 最悪そのまま wss:// を前に付ける
+            format!("wss://{}{}", base, "/api/v1/streaming")
+        }
+    });
+
     let client = reqwest::Client::builder()
-        .user_agent("mastodon-gpt-bot/0.1")
+        .user_agent("mastodon-gpt-bot/0.2")
         .build()?;
 
-    println!("Starting Mastodon GPT bot…");
+    println!("Starting Mastodon GPT bot (streaming mode)…");
+    println!("Streaming URL base: {}", streaming_base_url);
 
-    let mut state: BotState = load_state();
-    println!(
-        "Last notification id from state: {:?}",
-        state.last_notification_id
-    );
+    // 1. 通知ストリーム → メンションに返信
+    let client_stream = client.clone();
+    let mastodon_base_stream = mastodon_base.clone();
+    let mastodon_token_stream = mastodon_token.clone();
+    let openai_model_stream = openai_model.clone();
+    let openai_api_key_stream = openai_api_key.clone();
+    let streaming_url_stream = streaming_base_url.clone();
 
-    // 起動直後から1回はすぐに自発トゥートさせたくない場合は、
-    // ここを Instant::now() に変えると「1時間後の初回ポスト」になる。
-    let mut last_free_post = Instant::now() - Duration::from_secs(3600);
-
-    loop {
-        if let Err(e) = process_mentions_loop(
-            &client,
-            &mastodon_base,
-            &mastodon_token,
-            &openai_model,
-            &openai_api_key,
-            &mut state,
+    let stream_task = tokio::spawn(async move {
+        if let Err(e) = run_notification_stream(
+            &client_stream,
+            &streaming_url_stream,
+            &mastodon_base_stream,
+            &mastodon_token_stream,
+            &openai_model_stream,
+            &openai_api_key_stream,
         )
             .await
         {
-            eprintln!("Error in process_mentions_loop: {:?}", e);
+            eprintln!("run_notification_stream exited with error: {:?}", e);
         }
+    });
 
-        if let Err(e) = hourly_free_toot_loop(
-            &client,
-            &mastodon_base,
-            &mastodon_token,
-            &openai_model,
-            &openai_api_key,
-            &post_visibility,
-            &mut last_free_post,
-        )
-            .await
-        {
-            eprintln!("Error in hourly_free_toot_loop: {:?}", e);
-        }
+    // 2. 1時間ごとに自由トゥート
+    let client_free = client.clone();
+    let mastodon_base_free = mastodon_base.clone();
+    let mastodon_token_free = mastodon_token.clone();
+    let openai_model_free = openai_model.clone();
+    let openai_api_key_free = openai_api_key.clone();
+    let post_visibility_free = post_visibility.clone();
 
-        // レート制限＆CPU保護
-        sleep(Duration::from_secs(15)).await;
-    }
-}
+    let free_toot_task = tokio::spawn(async move {
+        loop {
+            // 起動から1時間待つならここを sleep(3600) にする
+            sleep(Duration::from_secs(3600)).await;
 
-/// メンションを取得して返信する処理
-async fn process_mentions_loop(
-    client: &reqwest::Client,
-    mastodon_base: &str,
-    mastodon_token: &str,
-    openai_model: &str,
-    openai_api_key: &str,
-    state: &mut BotState,
-) -> Result<()> {
-    let since_id_ref = state.last_notification_id.as_deref();
-
-    let mut notifs =
-        fetch_mentions(client, mastodon_base, mastodon_token, since_id_ref).await?;
-
-    // 古い順に処理
-    notifs.sort_by_key(|n: &Notification| n.id.clone());
-
-    for notif in notifs {
-        // mention 以外はスキップ
-        if notif.notif_type != "mention" {
-            state.last_notification_id = Some(notif.id.clone());
-            save_state(state);
-            continue;
-        }
-
-        // bot アカウントからのメンションは無視
-        if notif.account.bot.unwrap_or(false) {
-            println!(
-                "Skip mention from bot account @{} (id={})",
-                notif.account.acct, notif.id
-            );
-            state.last_notification_id = Some(notif.id.clone());
-            save_state(state);
-            continue;
-        }
-
-        let status = match &notif.status {
-            Some(s) => s,
-            None => {
-                state.last_notification_id = Some(notif.id.clone());
-                save_state(state);
-                continue;
-            }
-        };
-
-        let plain = strip_html(&status.content);
-        println!("Mention from @{}: {}", notif.account.acct, plain);
-
-        match generate_reply(client, openai_model, openai_api_key, &plain).await {
-            Ok(reply_text) => {
-                println!(" -> Reply: {}", reply_text);
-                if let Err(e) = post_reply(
-                    client,
-                    mastodon_base,
-                    mastodon_token,
-                    status,
-                    &notif.account.acct,
-                    &reply_text,
-                )
-                    .await
-                {
-                    eprintln!("Failed to post reply: {:?}", e);
+            println!("[free toot] Generating…");
+            match generate_free_toot(&client_free, &openai_model_free, &openai_api_key_free).await
+            {
+                Ok(text) => {
+                    println!("[free toot] {}", text);
+                    if let Err(e) = post_status(
+                        &client_free,
+                        &mastodon_base_free,
+                        &mastodon_token_free,
+                        &text,
+                        &post_visibility_free,
+                    )
+                        .await
+                    {
+                        eprintln!("[free toot] Failed to post: {:?}", e);
+                    }
+                }
+                Err(e) => {
+                    eprintln!("[free toot] Failed to generate: {:?}", e);
                 }
             }
-            Err(e) => {
-                eprintln!("Failed to generate reply: {:?}", e);
-            }
         }
+    });
 
-        state.last_notification_id = Some(notif.id.clone());
-        save_state(state);
-    }
-
-    Ok(())
-}
-
-/// 1時間に一度、自由トゥートを投稿する処理
-async fn hourly_free_toot_loop(
-    client: &reqwest::Client,
-    mastodon_base: &str,
-    mastodon_token: &str,
-    openai_model: &str,
-    openai_api_key: &str,
-    post_visibility: &str,
-    last_free_post: &mut Instant,
-) -> Result<()> {
-    // まだ1時間経ってなかったら何もしない
-    if last_free_post.elapsed() < Duration::from_secs(3600) {
-        return Ok(());
-    }
-
-    println!("Time for an hourly free toot…");
-
-    match generate_free_toot(client, openai_model, openai_api_key).await {
-        Ok(text) => {
-            println!("Free toot: {}", text);
-            if let Err(e) =
-                post_status(client, mastodon_base, mastodon_token, &text, post_visibility).await
-            {
-                eprintln!("Failed to post free toot: {:?}", e);
-            } else {
-                *last_free_post = Instant::now();
-            }
-        }
-        Err(e) => {
-            eprintln!("Failed to generate free toot: {:?}", e);
-            // 失敗したときは last_free_post を更新しないので、次ループで再トライ
-        }
-    }
+    // 両方のタスクが走り続けるようにする
+    let _ = tokio::join!(stream_task, free_toot_task);
 
     Ok(())
 }
