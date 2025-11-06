@@ -1,6 +1,6 @@
 ///! notificationストリームを購読して、適宜返信する
 
-// src/notification_stream.rs
+use crate::config::BotConfig;
 use crate::mastodon::{post_reply, Notification};
 use crate::openai_api::generate_reply;
 use crate::util::strip_html;
@@ -23,14 +23,14 @@ struct StreamEvent {
 /// streaming API に接続して、notification イベントを処理し続ける
 pub async fn run_notification_stream(
     client: &reqwest::Client,
-    streaming_base_url: &str,
-    mastodon_base_url: &str,
-    mastodon_token: &str,
-    openai_model: &str,
-    openai_api_key: &str,
+    config: &BotConfig,
 ) -> Result<()> {
     loop {
         println!("Connecting to Mastodon streaming API…");
+
+        // config から必要な値を取り出す
+        let streaming_base_url = &config.streaming_base_url;
+        let mastodon_token = &config.mastodon_token;
 
         match connect_stream(streaming_base_url, mastodon_token).await {
             Ok((mut ws_read, _url)) => {
@@ -42,10 +42,7 @@ pub async fn run_notification_stream(
                             if let Err(e) = handle_ws_text(
                                 client,
                                 &text,
-                                mastodon_base_url,
-                                mastodon_token,
-                                openai_model,
-                                openai_api_key,
+                                config, // ★ ここに config を渡す
                             )
                                 .await
                             {
@@ -53,7 +50,7 @@ pub async fn run_notification_stream(
                             }
                         }
                         Ok(Message::Ping(_)) => {
-                            // tokio-tungstenite が勝手に Pong 返してくれるので放置でもOK
+                            // Pong 自動返信に任せる
                         }
                         Ok(Message::Close(frame)) => {
                             println!("WebSocket closed: {:?}", frame);
@@ -61,7 +58,6 @@ pub async fn run_notification_stream(
                         }
                         Ok(_other) => {
                             // Binary などは無視
-                            // println!("WS other msg: {:?}", _other);
                         }
                         Err(e) => {
                             eprintln!("WebSocket error: {:?}", e);
@@ -75,11 +71,11 @@ pub async fn run_notification_stream(
             }
         }
 
-        // 切断されたら数秒待って再接続
         println!("Streaming connection lost. Reconnecting in 5 seconds…");
         tokio::time::sleep(std::time::Duration::from_secs(5)).await;
     }
 }
+
 
 /// WebSocket 接続を張る
 async fn connect_stream(
@@ -113,15 +109,11 @@ async fn connect_stream(
 async fn handle_ws_text(
     client: &reqwest::Client,
     text: &str,
-    mastodon_base_url: &str,
-    mastodon_token: &str,
-    openai_model: &str,
-    openai_api_key: &str,
+    config: &BotConfig,
 ) -> Result<()> {
     let ev: StreamEvent = serde_json::from_str(text)
         .context("Failed to parse stream event JSON")?;
 
-    // notification 以外 (update, delete, filters_changed など) は無視
     if ev.event != "notification" {
         return Ok(());
     }
@@ -131,16 +123,13 @@ async fn handle_ws_text(
         None => return Ok(()),
     };
 
-    // payload は Notification JSON が文字列として入ってるので、もう一回 parse
     let notif: Notification = serde_json::from_str(payload)
         .context("Failed to parse notification payload")?;
 
-    // mention 以外はスキップ
     if notif.notif_type != "mention" {
         return Ok(());
     }
 
-    // bot アカウントからのメンションはスキップ
     if notif.account.bot.unwrap_or(false) {
         println!(
             "Skip mention from bot account @{} (id={})",
@@ -157,14 +146,20 @@ async fn handle_ws_text(
     let plain = strip_html(&status.content);
     println!("(stream) Mention from @{}: {}", notif.account.acct, plain);
 
-    // OpenAI で返信を生成
-    match generate_reply(client, openai_model, openai_api_key, &plain).await {
+    match generate_reply(
+        client,
+        &config.openai_model,
+        &config.openai_api_key,
+        &plain,
+    )
+        .await
+    {
         Ok(reply_text) => {
             println!(" -> Reply: {}", reply_text);
             if let Err(e) = post_reply(
                 client,
-                mastodon_base_url,
-                mastodon_token,
+                &config.mastodon_base,
+                &config.mastodon_token,
                 status,
                 &notif.account.acct,
                 &reply_text,
@@ -181,4 +176,5 @@ async fn handle_ws_text(
 
     Ok(())
 }
+
 
