@@ -1,0 +1,71 @@
+# =========================
+# Rust / Cargo
+# =========================
+/target/
+/debug/
+/release/
+
+# Cargo ロック・ビルドキャッシュ（残したいならコメントアウト）
+# /Cargo.lock
+.cargo/
+
+# Rust ツールいろいろ
+**/*.rs.bk
+*.pdb
+
+# =========================
+# 環境変数・秘密情報
+# =========================
+.env
+.env.local
+.env.*.local
+
+# Windows の PowerShell で export 代わりに作った一時ファイルとか
+*.env.backup
+
+# =========================
+# ログ / 一時ファイル
+# =========================
+*.log
+logs/
+tmp/
+temp/
+
+# =========================
+# 編集ツール / IDE
+# =========================
+
+# VS Code
+.vscode/
+.history/
+
+# JetBrains 系 (CLion / RustRover / IntelliJ)
+.idea/
+*.iml
+
+# その他一般的なエディタのゴミ
+*~
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# =========================
+# Docker 関連
+# =========================
+# ビルド成果物などローカル用のもの（必要なら）
+docker-data/
+.docker/
+docker-compose.override.yml
+
+# =========================
+# テスト用・ローカル専用ファイル
+# =========================
+# 手元テストで置いた JSON / テキスト類（残したくないやつがあればここに追加）
+/test_data/
+/local_only/
+/scratch/
+
+# Mastodon / OpenAI のトークン類を直書きしたくなったとき用の保険
+tokens.json
+secrets.json

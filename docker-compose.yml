@@ -1,0 +1,14 @@
+version: "3.8"
+
+services:
+  mastodon-gpt-bot:
+    build: .
+    container_name: mastodon-gpt-bot
+    restart: unless-stopped
+    environment:
+      # Mastodon
+      MASTODON_BASE_URL: "https://kirishima.cloud"
+      MASTODON_ACCESS_TOKEN: "${MASTODON_ACCESS_TOKEN}"
+      # OpenAI
+      OPENAI_API_KEY: "${OPENAI_API_KEY}"
+      OPENAI_MODEL: "ft:gpt-4.1-mini-2025-04-14:atcurio::CYS62Ms5"
