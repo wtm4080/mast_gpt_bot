@@ -14,6 +14,8 @@ struct ChatRequest {
     model: String,
     messages: Vec<ChatMessage>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    temperature: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     stream: Option<bool>,
 }
 
@@ -46,10 +48,12 @@ async fn chat_stream(
     model: &str,
     api_key: &str,
     messages: Vec<ChatMessage>,
+    temperature: Option<f32>,
 ) -> Result<String> {
     let req_body = ChatRequest {
         model: model.to_string(),
         messages,
+        temperature,
         stream: Some(true),
     };
 
@@ -112,6 +116,8 @@ pub async fn generate_reply(
     api_key: &str,
     user_text: &str,
 ) -> Result<String> {
+    // 学習時の「自由につぶやいてください」フォーマットに寄せつつ、
+    // 相手の投稿内容も渡してあげる。
     let messages = vec![
         ChatMessage {
             role: "system".into(),
@@ -120,11 +126,20 @@ pub async fn generate_reply(
         },
         ChatMessage {
             role: "user".into(),
-            content: user_text.to_string(),
+            content: format!(
+                concat!(
+                "自由につぶやいてください。相手の投稿への返信として一言を書いてください。\n",
+                "同じ質問に対しても、できるだけ毎回少し表現を変えてください。\n",
+                "必要があれば、もう1〜2文だけ軽く説明を足してもOKです。\n",
+                "\n",
+                "相手の投稿: {}\n",
+                ),
+                user_text
+            ),
         },
     ];
 
-    chat_stream(client, model, api_key, messages).await
+    chat_stream(client, model, api_key, messages, Some(0.8)).await
 }
 
 /// 1時間に1回の「自由トゥート」を生成（streaming）
@@ -145,5 +160,5 @@ pub async fn generate_free_toot(
         },
     ];
 
-    chat_stream(client, model, api_key, messages).await
+    chat_stream(client, model, api_key, messages, Some(0.8)).await
 }
