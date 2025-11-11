@@ -75,33 +75,58 @@ async fn chat_stream(
 
     let mut stream = resp.bytes_stream();
     let mut output = String::new();
+    let mut pending = String::new(); // ★ チャンクを越えて溜めるバッファ
 
     while let Some(chunk) = stream.next().await {
         let chunk = chunk.context("failed to read streaming chunk")?;
         let text = String::from_utf8_lossy(&chunk);
 
-        for line in text.lines() {
-            let line = line.trim();
-            if line.is_empty() {
-                continue;
-            }
-            if !line.starts_with("data: ") {
-                continue;
-            }
+        // 新しいチャンクをバッファに追加
+        pending.push_str(&text);
 
-            let data = &line["data: ".len()..];
+        // バッファの中に「改行で終わる行」がある限り処理する
+        loop {
+            if let Some(pos) = pending.find('\n') {
+                // 行を切り出す（末尾の '\n' は捨てる）
+                let line = pending[..pos].to_string();
+                // 使った分 + '\n' をバッファから削除
+                pending = pending[pos + 1..].to_string();
 
-            if data == "[DONE]" {
-                // 完了
-                return Ok(output.trim().to_string());
-            }
-
-            let parsed: ChatStreamResponse =
-                serde_json::from_str(data).context("failed to parse stream JSON")?;
-            if let Some(choice) = parsed.choices.get(0) {
-                if let Some(delta) = &choice.delta.content {
-                    output.push_str(delta);
+                let line = line.trim();
+                if line.is_empty() {
+                    continue;
                 }
+                if !line.starts_with("data: ") {
+                    continue;
+                }
+
+                let data = &line["data: ".len()..];
+
+                if data == "[DONE]" {
+                    return Ok(output.trim().to_string());
+                }
+
+                if data.is_empty() {
+                    continue;
+                }
+
+                let parsed: ChatStreamResponse = match serde_json::from_str(data) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        // ここに来ることはほぼないはずだけど、念のためログだけ出してスキップ
+                        eprintln!("Failed to parse stream JSON: {} | raw: {}", e, data);
+                        continue;
+                    }
+                };
+
+                if let Some(choice) = parsed.choices.get(0) {
+                    if let Some(delta) = &choice.delta.content {
+                        output.push_str(delta);
+                    }
+                }
+            } else {
+                // まだ '\n' が来てない → 次のチャンクを待つ
+                break;
             }
         }
     }
@@ -115,7 +140,7 @@ pub async fn generate_reply(
     model: &str,
     api_key: &str,
     user_text: &str,
-    conversation_context: Option<&str>,   // ★ 追加
+    conversation_context: Option<&str>,
 ) -> Result<String> {
     let system_msg = ChatMessage {
         role: "system".into(),
@@ -132,14 +157,16 @@ pub async fn generate_reply(
                 "{}\n\n",
                 "この会話の流れを踏まえて、相手の最新の投稿に対する返信として、",
                 "Mastodon に投稿できる短めのメッセージを書いてください。\n",
-                "同じ質問に対しても、できるだけ毎回少し表現を変えてください。\n",
-                "必要があれば、もう1〜2文だけ軽く補足してもOKです。",
+                "ただし、あなたが直前に言った内容をそのまま繰り返さないでください。\n",
+                "相手の最新の投稿が「なるほど」「え？」「草」「www」などの短い相槌だけの場合は、\n",
+                "軽い相槌や一言リアクション、あるいは少しだけ話題を膨らませる返信にしてください。\n",
+                "説教くさい言い方や、同じフレーズの繰り返しは避けてください。",
                 ),
                 ctx
             ),
         }
     } else {
-        // 文脈が取れなかった場合は、これまでどおり単発の投稿として扱う
+        // 文脈なしのときは従来どおり
         ChatMessage {
             role: "user".into(),
             content: format!(
@@ -157,8 +184,7 @@ pub async fn generate_reply(
 
     let messages = vec![system_msg, user_msg];
 
-    // 会話返信はちょい変化欲しいので temperature 0.6くらい
-    chat_stream(client, model, api_key, messages, Some(0.6)).await
+    chat_stream(client, model, api_key, messages, Some(0.8)).await
 }
 
 /// 1時間に1回の「自由トゥート」を生成（streaming）
