@@ -11,4 +11,4 @@ services:
       MASTODON_ACCESS_TOKEN: "${MASTODON_ACCESS_TOKEN}"
       # OpenAI
       OPENAI_API_KEY: "${OPENAI_API_KEY}"
-      OPENAI_MODEL: "ft:gpt-4.1-mini-2025-04-14:atcurio::CYS62Ms5"
+      OPENAI_MODEL: "ft:gpt-4.1-mini-2025-04-14:atcurio::Cady3zPO"
