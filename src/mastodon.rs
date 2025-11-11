@@ -16,8 +16,9 @@ pub struct Notification {
 #[derive(Debug, Deserialize)]
 pub struct Status {
     pub id: String,
-    pub content: String, // HTML
+    pub content: String,   // HTML
     pub visibility: String,
+    pub _in_reply_to_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -37,6 +38,38 @@ struct NewStatusReply<'a> {
 struct NewStatusPlain<'a> {
     status: &'a str,
     visibility: &'a str,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct StatusContext {
+    pub ancestors: Vec<Status>,
+    pub _descendants: Vec<Status>,
+}
+
+/// 会話スレッドの文脈（ancestors / descendants）を取得
+pub async fn fetch_status_context(
+    client: &reqwest::Client,
+    base_url: &str,
+    token: &str,
+    status_id: &str,
+) -> Result<StatusContext> {
+    let url = format!("{}/api/v1/statuses/{}/context", base_url, status_id);
+
+    let resp = client
+        .get(&url)
+        .header(AUTHORIZATION, format!("Bearer {}", token))
+        .send()
+        .await
+        .context("Mastodon status context request failed")?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        anyhow::bail!("Mastodon context error {}: {}", status, text);
+    }
+
+    let ctx: StatusContext = resp.json().await.context("parse status context")?;
+    Ok(ctx)
 }
 
 /// 返信を投稿

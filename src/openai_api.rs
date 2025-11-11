@@ -115,15 +115,31 @@ pub async fn generate_reply(
     model: &str,
     api_key: &str,
     user_text: &str,
+    conversation_context: Option<&str>,   // ★ 追加
 ) -> Result<String> {
-    // 学習時の「自由につぶやいてください」フォーマットに寄せつつ、
-    // 相手の投稿内容も渡してあげる。
-    let messages = vec![
+    let system_msg = ChatMessage {
+        role: "system".into(),
+        content: "あなたは Mastodon のタイムラインでゆるく喋る日本語話者です。丁寧すぎない口調で、相手を安心させる感じで返信してください。ただし失礼な言い方や攻撃的な表現はしないでください。"
+            .into(),
+    };
+
+    let user_msg = if let Some(ctx) = conversation_context {
         ChatMessage {
-            role: "system".into(),
-            content: "あなたは Mastodon のタイムラインでゆるく喋る日本語話者です。丁寧すぎない口調で、相手を安心させる感じで返信してください。ただし失礼な言い方や攻撃的な表現はしないでください。"
-                .into(),
-        },
+            role: "user".into(),
+            content: format!(
+                concat!(
+                "以下は、これまでの会話の流れです（古い順）。一番下が相手の最新の投稿です:\n",
+                "{}\n\n",
+                "この会話の流れを踏まえて、相手の最新の投稿に対する返信として、",
+                "Mastodon に投稿できる短めのメッセージを書いてください。\n",
+                "同じ質問に対しても、できるだけ毎回少し表現を変えてください。\n",
+                "必要があれば、もう1〜2文だけ軽く補足してもOKです。",
+                ),
+                ctx
+            ),
+        }
+    } else {
+        // 文脈が取れなかった場合は、これまでどおり単発の投稿として扱う
         ChatMessage {
             role: "user".into(),
             content: format!(
@@ -136,10 +152,13 @@ pub async fn generate_reply(
                 ),
                 user_text
             ),
-        },
-    ];
+        }
+    };
 
-    chat_stream(client, model, api_key, messages, Some(0.8)).await
+    let messages = vec![system_msg, user_msg];
+
+    // 会話返信はちょい変化欲しいので temperature 0.6くらい
+    chat_stream(client, model, api_key, messages, Some(0.6)).await
 }
 
 /// 1時間に1回の「自由トゥート」を生成（streaming）

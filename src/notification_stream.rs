@@ -1,7 +1,13 @@
 ///! notificationストリームを購読して、適宜返信する
 
 use crate::config::BotConfig;
-use crate::mastodon::{post_reply, Notification};
+use crate::mastodon::{
+    post_reply,
+    fetch_status_context,
+    Notification,
+    Status,
+    StatusContext,
+};
 use crate::openai_api::generate_reply;
 use crate::util::strip_html;
 
@@ -146,14 +152,37 @@ async fn handle_ws_text(
     let plain = strip_html(&status.content);
     println!("(stream) Mention from @{}: {}", notif.account.acct, plain);
 
+    // ★ 会話コンテキストを取得（失敗したら諦めて単発扱い）
+    let conversation_context = match fetch_status_context(
+        client,
+        &config.mastodon_base,
+        &config.mastodon_token,
+        &status.id,
+    )
+        .await
+    {
+        Ok(ctx) => {
+            let ctx_text = format_conversation_context(&ctx, status);
+            if ctx_text.is_empty() {
+                None
+            } else {
+                Some(ctx_text)
+            }
+        }
+        Err(e) => {
+            eprintln!("Failed to fetch status context: {:?}", e);
+            None
+        }
+    };
+
     match generate_reply(
         client,
         &config.openai_model,
         &config.openai_api_key,
         &plain,
+        conversation_context.as_deref(),  // ★ ここで渡す
     )
-        .await
-    {
+        .await {
         Ok(reply_text) => {
             println!(" -> Reply: {}", reply_text);
             if let Err(e) = post_reply(
@@ -177,4 +206,39 @@ async fn handle_ws_text(
     Ok(())
 }
 
+fn format_conversation_context(ctx: &StatusContext, current: &Status) -> String {
+    // ancestors は古い順で返ってくる想定なので、直近数件だけに絞る
+    let ancestors = &ctx.ancestors;
+    let max_back = 10; // 遡って見る最大件数
+    let start = if ancestors.len() > max_back {
+        ancestors.len() - max_back
+    } else {
+        0
+    };
 
+    let mut lines = Vec::new();
+
+    for s in &ancestors[start..] {
+        let text = strip_html(&s.content);
+        if !text.is_empty() {
+            lines.push(text);
+        }
+    }
+
+    // 最後に「今の投稿」を入れる
+    let current_text = strip_html(&current.content);
+    if !current_text.is_empty() {
+        lines.push(current_text);
+    }
+
+    // 「古い順」のリストとして整形
+    // 例:
+    // - 前の人: ...
+    // - 自分: ...
+    // - 相手: ...
+    lines
+        .into_iter()
+        .map(|t| format!("- {}", t))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
