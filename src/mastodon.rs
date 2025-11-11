@@ -18,7 +18,8 @@ pub struct Status {
     pub id: String,
     pub content: String,   // HTML
     pub visibility: String,
-    pub _in_reply_to_id: Option<String>,
+    #[allow(dead_code)]
+    pub in_reply_to_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -43,7 +44,8 @@ struct NewStatusPlain<'a> {
 #[derive(Debug, Deserialize)]
 pub struct StatusContext {
     pub ancestors: Vec<Status>,
-    pub _descendants: Vec<Status>,
+    #[allow(dead_code)]
+    pub descendants: Vec<Status>,
 }
 
 /// 会話スレッドの文脈（ancestors / descendants）を取得

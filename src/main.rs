@@ -34,6 +34,12 @@ async fn main() -> Result<()> {
     let post_visibility =
         env::var("MASTODON_POST_VISIBILITY").unwrap_or_else(|_| "public".to_string());
 
+    let free_toot_interval_secs: u64 = env::var("FREE_TOOT_INTERVAL_SECS")
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok())
+        .unwrap_or(3600); // デフォルトは 1時間
+
+
     // Streaming API のベース URL
     let streaming_base_url = env::var("MASTODON_STREAMING_URL").unwrap_or_else(|_| {
         let base = mastodon_base.trim_end_matches('/');
@@ -76,10 +82,11 @@ async fn main() -> Result<()> {
     // 2. 1時間ごとに自由トゥート
     let client_free = client.clone();
     let config_free = config.clone();
+    let interval_free = free_toot_interval_secs;
 
     let free_toot_task = tokio::spawn(async move {
         loop {
-            sleep(Duration::from_secs(3600)).await;
+            sleep(Duration::from_secs(interval_free)).await;
 
             println!("[free toot] Generating…");
             if let Err(e) = do_free_toot(&client_free, &config_free).await {
