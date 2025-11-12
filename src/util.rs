@@ -105,3 +105,49 @@ pub fn fit_for_mastodon_plain(input: &str, limit: usize) -> String {
     out.push('…');
     out
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn md_link_is_plain_domain() {
+        let s = "詳細は[公式ブログ](https://blog.rust-lang.org/2025/11/10/Rust-1.91.1/)参照。";
+        let got = normalize_links_to_domains(s);
+        // 句読点「。」は保持、Markdownリンクのみ (domain) に
+        assert_eq!(got, "詳細は(blog.rust-lang.org)参照。");
+    }
+
+    #[test]
+    fn raw_url_is_plain_domain() {
+        let s = "URL: https://example.com/path?q=1";
+        let got = normalize_links_to_domains(s);
+        // プレフィックス "URL: " は保持し、URLのみ (domain) に
+        assert_eq!(got, "URL: (example.com)");
+    }
+
+    #[test]
+    fn zenkaku_brackets_and_spaces() {
+        let s = "（参考） https://sub.example.org/a　b";
+        let got = normalize_links_to_domains(s);
+        // 全角括弧は半角に正規化し、注記は保持、URLは (domain) に、全角スペースは半角へ
+        assert_eq!(got, "(参考) (sub.example.org) b");
+    }
+
+    #[test]
+    fn fit_within_limit_keeps_bullets() {
+        let s = "- 1行目\n- 2行目\n- 3行目";
+        let got = fit_for_mastodon_plain(s, 12); // だいたい「- 1行目\n- 2行目」で収まる想定
+        assert!(got.contains("- 1行目"));
+        assert!(got.contains("- 2行目"));
+        assert!(!got.contains("- 3行目"));
+    }
+
+    #[test]
+    fn fit_truncates_when_no_newlines() {
+        let s = "あいうえおかきくけこさしすせそたちつてと";
+        let got = fit_for_mastodon_plain(s, 10);
+        assert!(got.chars().count() <= 10);
+        assert!(got.ends_with('…'));
+    }
+}

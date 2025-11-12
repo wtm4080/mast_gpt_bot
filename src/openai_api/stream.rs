@@ -108,3 +108,43 @@ pub async fn call_responses(client: &Client, args: CallResponsesArgs<'_>) -> Res
 
     Ok(ResponsesResult { id, text, status: Some(status) })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn extract_single_output_text() {
+        let v = json!({
+            "output": [
+                {"type":"output_text","text":"hello"}
+            ]
+        });
+        let mut out = String::new();
+        extract_output_text(&v, &mut out);
+        assert_eq!(out, "hello");
+    }
+
+    #[test]
+    fn extract_multiple_output_text_joined_with_newlines() {
+        let v = json!({
+            "output": [
+                {"type":"output_text","text":"line1"},
+                {"type":"other","text":"ignored"},
+                {"type":"output_text","text":"line2"}
+            ]
+        });
+        let mut out = String::new();
+        extract_output_text(&v, &mut out);
+        assert_eq!(out, "line1\nline2");
+    }
+
+    #[test]
+    fn ignore_when_no_text() {
+        let v = json!({ "output": [{"type":"other","text":"x"}] });
+        let mut out = String::new();
+        extract_output_text(&v, &mut out);
+        assert!(out.is_empty());
+    }
+}
