@@ -2,6 +2,7 @@
 name = "mast_gpt_bot"
 version = "0.1.0"
 edition = "2024"
+license = "MIT"
 
 [dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
