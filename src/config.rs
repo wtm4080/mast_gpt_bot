@@ -8,4 +8,7 @@ pub struct BotConfig {
     pub openai_api_key: String,
     pub post_visibility: String,
     pub streaming_base_url: String,
+
+    /// リプライ用の最小インターバル（ミリ秒）
+    pub reply_min_interval_ms: u64,
 }

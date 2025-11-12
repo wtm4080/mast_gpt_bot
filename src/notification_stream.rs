@@ -16,6 +16,31 @@ use futures_util::StreamExt;
 use serde::Deserialize;
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 use url::Url;
+use std::time::{Duration, Instant};
+use tokio::sync::Mutex;
+use once_cell::sync::Lazy;
+
+// グローバルな「最後にOpenAIへ投げた時刻」
+static LAST_REPLY_AT: Lazy<Mutex<Option<Instant>>> = Lazy::new(|| Mutex::new(None));
+
+async fn wait_for_rate_limit(min_interval_ms: u64) {
+    use tokio::time::sleep;
+
+    let mut guard = LAST_REPLY_AT.lock().await;
+    let min_interval = Duration::from_millis(min_interval_ms);
+
+    if let Some(last) = *guard {
+        let elapsed = last.elapsed();
+        if elapsed < min_interval {
+            let wait = min_interval - elapsed;
+            // 必要なぶんだけsleep
+            sleep(wait).await;
+        }
+    }
+
+    // 「今回投げた時刻」を更新
+    *guard = Some(Instant::now());
+}
 
 /// WebSocket から来る 1 メッセージ分
 #[derive(Debug, Deserialize)]
@@ -174,6 +199,9 @@ async fn handle_ws_text(
             None
         }
     };
+
+    // ここでレートリミットに従う（必要ならsleep）
+    wait_for_rate_limit(config.reply_min_interval_ms).await;
 
     match generate_reply(
         client,

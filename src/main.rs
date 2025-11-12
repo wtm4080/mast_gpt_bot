@@ -39,6 +39,10 @@ async fn main() -> Result<()> {
         .and_then(|s| s.parse::<u64>().ok())
         .unwrap_or(3600); // デフォルトは 1時間
 
+    let reply_min_interval_ms: u64 = env::var("REPLY_MIN_INTERVAL_MILLIS")
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok())
+        .unwrap_or(1000); // デフォルト 1000ms = 1秒
 
     // Streaming API のベース URL
     let streaming_base_url = env::var("MASTODON_STREAMING_URL").unwrap_or_else(|_| {
@@ -60,6 +64,7 @@ async fn main() -> Result<()> {
         openai_api_key,
         post_visibility,
         streaming_base_url,
+        reply_min_interval_ms,
     };
 
     let client = reqwest::Client::builder()
