@@ -26,6 +26,9 @@ WORKDIR /app
 # バイナリ名は crate 名と同じ `mast_gpt_bot` を想定
 COPY --from=builder /usr/src/app/target/release/mast_gpt_bot /app/mast_gpt_bot
 
+# prompts.json を含む config ディレクトリをコピー
+COPY config ./config
+
 # ログ欲しければ適当に
 ENV RUST_LOG=info
 
