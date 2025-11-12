@@ -13,14 +13,15 @@ pub struct ReplyResult {
 
 pub async fn generate_reply(
     client: &Client,
-    model: &str,
-    api_key: &str,
+    cfg: &BotConfig,
     user_text: &str,
     conversation_context: Option<&str>,
-    temperature: f32,
     previous_response_id: Option<String>,
-    cfg: &BotConfig,
 ) -> Result<ReplyResult> {
+    let model = &cfg.openai_model;
+    let api_key = &cfg.openai_api_key;
+    let temperature = cfg.reply_temperature;
+
     // どっちのテンプレを使うかだけ分岐
     let mut messages: Vec<ChatMessage> = if conversation_context.is_some() {
         PROMPTS.reply_with_context.clone()

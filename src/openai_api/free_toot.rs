@@ -26,11 +26,13 @@ fn select_free_toot_messages() -> (Vec<ChatMessage>, &'static str) {
     }
 }
 
-pub async fn generate_free_toot(
-    client: &Client, model: &str, api_key: &str, temperature: f32, cfg: &BotConfig,
-) -> Result<String> {
+pub async fn generate_free_toot(client: &Client, cfg: &BotConfig) -> Result<String> {
     let (messages, slot) = select_free_toot_messages();
     println!("[free toot] using {} prompts", slot);
+
+    let model = &cfg.openai_model;
+    let api_key = &cfg.openai_api_key;
+    let temperature = cfg.free_toot_temperature;
 
     let mut tools = Vec::new();
     if cfg.enable_web_search { tools.push(Tool::WebSearch); }

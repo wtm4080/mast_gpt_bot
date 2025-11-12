@@ -179,13 +179,10 @@ async fn handle_ws_text(
     // 4. OpenAI へ問い合わせ（previous_response_id を渡す）
     match crate::openai_api::generate_reply(
         client,
-        &config.openai_model,
-        &config.openai_api_key,
+        config,
         &plain,
         conversation_context.as_deref(),
-        config.reply_temperature,
         prev_response_id,
-        config,
     )
         .await
     {

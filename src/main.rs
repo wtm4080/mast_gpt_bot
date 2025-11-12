@@ -64,14 +64,7 @@ async fn main() -> Result<()> {
 }
 
 async fn do_free_toot(client: &reqwest::Client, config: &BotConfig) -> Result<()> {
-    let text = generate_free_toot(
-        client,
-        &config.openai_model,
-        &config.openai_api_key,
-        config.free_toot_temperature,
-        config,
-    )
-        .await?;
+    let text = generate_free_toot(client, config).await?;
 
     println!("[free toot] {}", text);
 
