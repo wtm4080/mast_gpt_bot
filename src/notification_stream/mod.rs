@@ -174,7 +174,7 @@ async fn handle_ws_text(
     }
 
     // 3. レートリミット
-    wait_for_rate_limit(config.reply_min_interval_ms).await;
+    wait_for_rate_limit(config.reply_min_interval.as_millis() as u64).await;
 
     // 4. OpenAI へ問い合わせ（previous_response_id を渡す）
     match crate::openai_api::generate_reply(
