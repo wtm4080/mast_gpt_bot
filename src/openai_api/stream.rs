@@ -41,14 +41,19 @@ impl<'a> CallResponsesArgs<'a> {
 fn extract_output_text(v: &Value, out: &mut String) {
     match v {
         Value::Object(map) => {
-            if let (Some(Value::String(ty)), Some(Value::String(t))) = (map.get("type"), map.get("text")) {
-                if ty == "output_text" {
-                    if !out.is_empty() { out.push('\n'); }
-                    out.push_str(t);
+            // ← ネスト if を合体（if-let ガード）
+            if let (Some(Value::String(ty)), Some(Value::String(t))) =
+                (map.get("type"), map.get("text"))
+                && ty == "output_text"
+            {
+                if !out.is_empty() {
+                    out.push('\n');
                 }
+                out.push_str(t);
             }
-            // 再帰
-            for (_k, vv) in map {
+
+            // キー未使用なので values() でスッキリ
+            for vv in map.values() {
                 extract_output_text(vv, out);
             }
         }
