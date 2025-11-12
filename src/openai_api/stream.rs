@@ -1,61 +1,105 @@
-use crate::openai_api::types::{
-    ChatMessage, ResponsesRequest, ResponsesResponse, ResponsesResult, Tool,
-};
-
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Result};
 use reqwest::Client;
-use reqwest::header::{AUTHORIZATION, CONTENT_TYPE};
+use serde_json::Value;
 
-const OPENAI_RESPONSES_URL: &str = "https://api.openai.com/v1/responses";
+use crate::openai_api::types::{ChatMessage, ResponsesRequest, ResponsesResult, Tool};
 
-/// Responses API を叩いて、テキストと response.id を返す
-pub async fn call_responses(
-    client: &Client,
-    model: &str,
-    api_key: &str,
-    messages: Vec<ChatMessage>,
-    temperature: Option<f32>,
-    max_output_tokens: Option<u32>,
-    previous_response_id: Option<String>,
-    tools: Option<Vec<Tool>>,
-) -> Result<ResponsesResult> {
+/// `call_responses` に渡す引数まとめ
+pub struct CallResponsesArgs<'a> {
+    pub model: &'a str,
+    pub api_key: &'a str,
+    pub messages: Vec<ChatMessage>,
+    pub temperature: Option<f32>,
+    pub max_output_tokens: Option<u32>,
+    pub previous_response_id: Option<String>,
+    pub tools: Option<Vec<Tool>>,
+}
+
+impl<'a> CallResponsesArgs<'a> {
+    pub fn new(model: &'a str, api_key: &'a str, messages: Vec<ChatMessage>) -> Self {
+        Self {
+            model,
+            api_key,
+            messages,
+            temperature: None,
+            max_output_tokens: None,
+            previous_response_id: None,
+            tools: None,
+        }
+    }
+    pub fn temperature(mut self, t: f32) -> Self { self.temperature = Some(t); self }
+    pub fn max_output_tokens(mut self, n: u32) -> Self { self.max_output_tokens = Some(n); self }
+    pub fn previous_response_id<S: Into<String>>(mut self, id: S) -> Self {
+        self.previous_response_id = Some(id.into()); self
+    }
+    pub fn tools(mut self, tools: Vec<Tool>) -> Self {
+        self.tools = if tools.is_empty() { None } else { Some(tools) }; self
+    }
+}
+
+/// `{"type":"output_text","text":"..."}` を優先的に抽出
+fn extract_output_text(v: &Value, out: &mut String) {
+    match v {
+        Value::Object(map) => {
+            if let (Some(Value::String(ty)), Some(Value::String(t))) = (map.get("type"), map.get("text")) {
+                if ty == "output_text" {
+                    if !out.is_empty() { out.push('\n'); }
+                    out.push_str(t);
+                }
+            }
+            // 再帰
+            for (_k, vv) in map {
+                extract_output_text(vv, out);
+            }
+        }
+        Value::Array(arr) => {
+            for vv in arr {
+                extract_output_text(vv, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// OpenAI Responses API 呼び出し（JSONをValueで受けて安全抽出）
+pub async fn call_responses(client: &Client, args: CallResponsesArgs<'_>) -> Result<ResponsesResult> {
     let req_body = ResponsesRequest {
-        model: model.to_string(),
-        input: messages,
-        temperature,
-        max_output_tokens,
-        previous_response_id,
-        tools,
+        model: args.model.to_string(),
+        input: args.messages,
+        temperature: args.temperature,
+        max_output_tokens: args.max_output_tokens,
+        previous_response_id: args.previous_response_id,
+        tools: args.tools,
     };
 
     let resp = client
-        .post(OPENAI_RESPONSES_URL)
-        .header(AUTHORIZATION, format!("Bearer {}", api_key))
-        .header(CONTENT_TYPE, "application/json")
+        .post("https://api.openai.com/v1/responses")
+        .bearer_auth(args.api_key)
         .json(&req_body)
         .send()
-        .await
-        .context("OpenAI Responses API request failed")?;
+        .await?;
 
-    if !resp.status().is_success() {
-        let status = resp.status();
-        let text = resp.text().await.unwrap_or_default();
-        anyhow::bail!("OpenAI error {}: {}", status, text);
+    let status_code = resp.status();
+    let raw = resp.text().await?;
+
+    if !status_code.is_success() {
+        return Err(anyhow!("OpenAI error {}: {}", status_code, raw));
     }
 
-    let body: ResponsesResponse =
-        resp.json().await.context("Failed to parse Responses API JSON")?;
+    let v: Value = serde_json::from_str(&raw)
+        .map_err(|e| anyhow!("error decoding response body: {}\nraw: {}", e, raw))?;
 
-    let mut out = String::new();
-    for item in body.output {
-        for c in item.content {
-            if c.content_type == "output_text" {
-                if let Some(t) = c.text {
-                    out.push_str(&t);
-                }
-            }
-        }
+    let id = v.get("id").and_then(|x| x.as_str()).unwrap_or_default().to_string();
+    let status = v.get("status").and_then(|x| x.as_str()).unwrap_or_default().to_string();
+    let mut text = String::new();
+
+    if let Some(output) = v.get("output") {
+        extract_output_text(output, &mut text);
+    }
+    if text.is_empty() {
+        // ぜんぜん拾えなかった場合は空文字のまま返し、呼び出し側でリカバリ
+        // （ここで raw を返して Mastodon に貼らない）
     }
 
-    Ok(ResponsesResult { id: body.id, text: out.trim().to_string() })
+    Ok(ResponsesResult { id, text, status: Some(status) })
 }

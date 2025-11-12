@@ -17,8 +17,10 @@ pub struct PromptConfig {
 }
 
 /// 相対パスが指定された場合に、
+///
 /// 1. カレントディレクトリ基準
 /// 2. 実行ファイルのあるディレクトリ基準
+///
 /// の順に試す
 fn resolve_prompts_path(raw: &str) -> PathBuf {
     let p = Path::new(raw);
@@ -36,12 +38,11 @@ fn resolve_prompts_path(raw: &str) -> PathBuf {
     }
 
     // 2. 実行ファイルと同じディレクトリからの相対パス
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(exe_dir) = exe.parent() {
-            let from_exe = exe_dir.join(p);
-            if from_exe.exists() {
-                return from_exe;
-            }
+    if let Ok(exe) = std::env::current_exe() && let Some(exe_dir) = exe.parent() {
+        let from_exe = exe_dir.join(p);
+
+        if from_exe.exists() {
+            return from_exe;
         }
     }
 

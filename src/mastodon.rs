@@ -1,10 +1,12 @@
+//! Mastodon API まわり（型＋HTTP）
+
 use crate::config::BotConfig;
-///! Mastodon API まわり（型＋HTTP）
 use anyhow::{Context, Result, anyhow};
 use reqwest::Client;
 use reqwest::header::AUTHORIZATION;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use crate::util::fit_for_mastodon_plain;
 
 #[derive(Debug, Deserialize)]
 pub struct Notification {
@@ -108,28 +110,26 @@ pub async fn post_reply(
 
 /// 自由ポスト（返信じゃない普通のトゥート）を投稿
 pub async fn post_status(client: &Client, cfg: &BotConfig, text: &str) -> Result<()> {
-    // エンドポイント
     let url = format!("{}/api/v1/statuses", cfg.mastodon_base);
 
-    // 可視性（Visibility -> &str 変換）
-    // 既存の Visibility が Display 実装済みなら to_string() でOK。
-    // 未実装なら match で文字列に落とす。
     let visibility_str = cfg.visibility.to_string();
 
-    // 本文が空は弾く（念のため）
-    let status = text.trim();
+    // ここで上限に整形
+    let status = fit_for_mastodon_plain(text.trim(), cfg.mastodon_char_limit);
     if status.is_empty() {
-        return Err(anyhow!("post_status: empty status"));
+        return Err(anyhow!("post_status: empty after fit"));
     }
 
-    // リクエスト作成
-    let req = client.post(&url).bearer_auth(&cfg.mastodon_access_token).form(&json!({
-        "status": status,
-        "visibility": visibility_str,
-    }));
+    let resp = client
+        .post(&url)
+        .bearer_auth(&cfg.mastodon_access_token)
+        .form(&json!({
+            "status": status,
+            "visibility": visibility_str,
+        }))
+        .send()
+        .await?;
 
-    // 送信
-    let resp = req.send().await?;
     if !resp.status().is_success() {
         let code = resp.status();
         let body = resp.text().await.unwrap_or_default();

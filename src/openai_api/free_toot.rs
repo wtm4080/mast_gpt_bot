@@ -5,7 +5,7 @@ use reqwest::Client;
 
 use crate::config::BotConfig;
 use crate::openai_api::prompts::PROMPTS;
-use crate::openai_api::stream::call_responses;
+use crate::openai_api::stream::{call_responses, CallResponsesArgs};
 use crate::openai_api::types::{ChatMessage, Tool};
 
 fn now_tokyo_rfc3339() -> String {
@@ -50,20 +50,15 @@ pub async fn generate_free_toot(client: &Client, cfg: &BotConfig) -> Result<Stri
     // time ツールは存在しないので使わない。web_search は preview 名称。
     let mut tools = Vec::new();
     if cfg.enable_web_search {
-        tools.push(Tool::WebSearchPreview);
+        tools.push(Tool::WebSearchPreview { search_context_size: None });
     }
 
-    let res = call_responses(
-        client,
-        model,
-        api_key,
-        messages,
-        Some(temperature),
-        Some(256),
-        None, // previous_response_id は自由トゥートでは未使用
-        if tools.is_empty() { None } else { Some(tools) },
-    )
-        .await?;
+    let args = CallResponsesArgs::new(model, api_key, messages)
+        .temperature(temperature)
+        .max_output_tokens(256)
+        .tools(tools);
+
+    let res = call_responses(client, args).await?;
 
     Ok(res.text)
 }

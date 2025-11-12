@@ -20,6 +20,7 @@ pub struct BotConfig {
     pub free_toot_temperature: f32,
 
     pub visibility: Visibility, // 投稿公開範囲
+    pub mastodon_char_limit: usize,
 
     pub reply_min_interval: Duration,
 
@@ -57,7 +58,7 @@ impl Display for Visibility {
             Visibility::Direct => "direct",
         };
 
-        write!(f, "{}", s.to_string())
+        write!(f, "{}", s)
     }
 }
 
@@ -85,6 +86,7 @@ impl BotConfig {
         let free_toot_temperature: f32 = parse("FREE_TOOT_TEMPERATURE", 0.8)?;
 
         let visibility: Visibility = parse_str("MASTODON_POST_VISIBILITY", "unlisted")?;
+        let mastodon_char_limit: usize = parse("MASTODON_CHAR_LIMIT", 500)?;
 
         let reply_min_interval_ms: u64 = parse("REPLY_MIN_INTERVAL_MS", 3000)?;
         let reply_min_interval = Duration::from_millis(reply_min_interval_ms);
@@ -104,6 +106,7 @@ impl BotConfig {
             reply_temperature,
             free_toot_temperature,
             visibility,
+            mastodon_char_limit,
             reply_min_interval,
             enable_web_search,
         })
