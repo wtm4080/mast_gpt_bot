@@ -5,7 +5,10 @@ use std::{fs, path::{Path, PathBuf}};
 
 #[derive(Debug, Deserialize)]
 pub struct PromptConfig {
-    pub free_toot: Vec<ChatMessage>,
+    pub free_toot_morning: Vec<ChatMessage>,
+    pub free_toot_day: Vec<ChatMessage>,
+    pub free_toot_night: Vec<ChatMessage>,
+
     pub reply_with_context: Vec<ChatMessage>,
     pub reply_without_context: Vec<ChatMessage>,
 }
