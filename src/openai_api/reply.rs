@@ -2,8 +2,9 @@ use anyhow::Result;
 use reqwest::Client;
 
 use crate::openai_api::stream::call_responses;
-use crate::openai_api::types::{ChatMessage, ResponsesResult};
+use crate::openai_api::types::{ChatMessage, ResponsesResult, Tool};
 use crate::openai_api::prompts::PROMPTS;
+use crate::config::BotConfig;
 
 pub struct ReplyResult {
     pub text: String,
@@ -18,6 +19,7 @@ pub async fn generate_reply(
     conversation_context: Option<&str>,
     temperature: f32,
     previous_response_id: Option<String>,
+    cfg: &BotConfig,
 ) -> Result<ReplyResult> {
     // どっちのテンプレを使うかだけ分岐
     let mut messages: Vec<ChatMessage> = if conversation_context.is_some() {
@@ -49,6 +51,10 @@ pub async fn generate_reply(
         );
     }
 
+    let mut tools = Vec::new();
+    if cfg.enable_web_search { tools.push(Tool::WebSearch); }
+    if cfg.enable_time_now  { tools.push(Tool::Time); }
+
     let res: ResponsesResult = call_responses(
         client,
         model,
@@ -57,6 +63,7 @@ pub async fn generate_reply(
         Some(temperature),
         Some(256),
         previous_response_id,
+        if tools.is_empty() { None } else { Some(tools) },
     )
         .await?;
 

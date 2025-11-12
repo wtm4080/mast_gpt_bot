@@ -185,6 +185,7 @@ async fn handle_ws_text(
         conversation_context.as_deref(),
         config.reply_temperature,
         prev_response_id,
+        config,
     )
         .await
     {

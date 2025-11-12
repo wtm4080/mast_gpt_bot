@@ -69,6 +69,7 @@ async fn do_free_toot(client: &reqwest::Client, config: &BotConfig) -> Result<()
         &config.openai_model,
         &config.openai_api_key,
         config.free_toot_temperature,
+        config,
     )
         .await?;
 

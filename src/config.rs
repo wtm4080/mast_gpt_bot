@@ -22,6 +22,10 @@ pub struct BotConfig {
     pub visibility: Visibility,     // 投稿公開範囲
 
     pub reply_min_interval: Duration,
+
+    // Tools
+    pub enable_web_search: bool,
+    pub enable_time_now: bool,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -81,6 +85,10 @@ impl BotConfig {
         let reply_min_interval_ms: u64 = parse("REPLY_MIN_INTERVAL_MS", 3000)?;
         let reply_min_interval = Duration::from_millis(reply_min_interval_ms);
 
+        // tools
+        let enable_web_search: bool = parse("ENABLE_WEB_SEARCH", false)?;
+        let enable_time_now: bool = parse("ENABLE_TIME_NOW", true)?;
+
         Ok(Self {
             mastodon_base,
             mastodon_token,
@@ -94,6 +102,8 @@ impl BotConfig {
             free_toot_temperature,
             visibility,
             reply_min_interval,
+            enable_web_search,
+            enable_time_now,
         })
     }
 

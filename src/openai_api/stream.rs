@@ -1,5 +1,5 @@
 use crate::openai_api::types::{
-    ChatMessage, ResponsesRequest, ResponsesResponse, ResponsesResult,
+    ChatMessage, ResponsesRequest, ResponsesResponse, ResponsesResult, Tool,
 };
 
 use anyhow::{Context, Result};
@@ -17,6 +17,7 @@ pub async fn call_responses(
     temperature: Option<f32>,
     max_output_tokens: Option<u32>,
     previous_response_id: Option<String>,
+    tools: Option<Vec<Tool>>,
 ) -> Result<ResponsesResult> {
     let req_body = ResponsesRequest {
         model: model.to_string(),
@@ -24,6 +25,7 @@ pub async fn call_responses(
         temperature,
         max_output_tokens,
         previous_response_id,
+        tools,
     };
 
     let resp = client

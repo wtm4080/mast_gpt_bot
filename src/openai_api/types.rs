@@ -1,5 +1,19 @@
 use serde::{Deserialize, Serialize};
 
+/// Hosted tool kinds for Responses API
+#[derive(Debug, Serialize, Clone)]
+#[serde(tag = "type")]
+pub enum Tool {
+    /// Built-in web search (OpenAI Index)
+    /// Docs/examples: cookbook + guides
+    #[serde(rename = "web_search")]
+    WebSearch,
+    /// Current time tool
+    /// (Hosted tool that lets the model ask for "now")
+    #[serde(rename = "time")]
+    Time,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ChatMessage {
     pub role: String,
@@ -16,6 +30,8 @@ pub struct ResponsesRequest {
     pub max_output_tokens: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub previous_response_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tools: Option<Vec<Tool>>,
 }
 
 #[derive(Debug, Deserialize)]
