@@ -1,11 +1,10 @@
+use crate::config::BotConfig;
 ///! Mastodon API まわり（型＋HTTP）
-
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use reqwest::Client;
 use reqwest::header::AUTHORIZATION;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use crate::config::BotConfig;
 
 #[derive(Debug, Deserialize)]
 pub struct Notification {
@@ -19,7 +18,7 @@ pub struct Notification {
 #[derive(Debug, Deserialize)]
 pub struct Status {
     pub id: String,
-    pub content: String,   // HTML
+    pub content: String, // HTML
     pub visibility: String,
     #[allow(dead_code)]
     pub in_reply_to_id: Option<String>,
@@ -124,13 +123,10 @@ pub async fn post_status(client: &Client, cfg: &BotConfig, text: &str) -> Result
     }
 
     // リクエスト作成
-    let req = client
-        .post(&url)
-        .bearer_auth(&cfg.mastodon_access_token)
-        .form(&json!({
-            "status": status,
-            "visibility": visibility_str,
-        }));
+    let req = client.post(&url).bearer_auth(&cfg.mastodon_access_token).form(&json!({
+        "status": status,
+        "visibility": visibility_str,
+    }));
 
     // 送信
     let resp = req.send().await?;

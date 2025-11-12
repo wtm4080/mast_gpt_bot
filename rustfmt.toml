@@ -1,0 +1,8 @@
+# rustfmt.toml
+max_width = 100
+use_small_heuristics = "Max"
+#group_imports = "StdExternalCrate"
+reorder_imports = true
+#imports_granularity = "Crate"
+#wrap_comments = true
+newline_style = "Unix"

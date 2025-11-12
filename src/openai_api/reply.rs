@@ -1,10 +1,10 @@
 use anyhow::Result;
 use reqwest::Client;
 
+use crate::config::BotConfig;
+use crate::openai_api::prompts::PROMPTS;
 use crate::openai_api::stream::call_responses;
 use crate::openai_api::types::{ChatMessage, ResponsesResult, Tool};
-use crate::openai_api::prompts::PROMPTS;
-use crate::config::BotConfig;
 
 pub struct ReplyResult {
     pub text: String,
@@ -34,10 +34,8 @@ pub async fn generate_reply(
     // user メッセージにだけプレースホルダ差し替え
     for msg in &mut messages {
         if msg.role == "user" {
-            msg.content = msg
-                .content
-                .replace("{{USER_TEXT}}", user_text)
-                .replace("{{CONTEXT}}", ctx_str); // ← もう使わなくても OK（入ってなければ no-op）
+            msg.content =
+                msg.content.replace("{{USER_TEXT}}", user_text).replace("{{CONTEXT}}", ctx_str); // ← もう使わなくても OK（入ってなければ no-op）
         }
     }
 
@@ -53,8 +51,12 @@ pub async fn generate_reply(
     }
 
     let mut tools = Vec::new();
-    if cfg.enable_web_search { tools.push(Tool::WebSearch); }
-    if cfg.enable_time_now  { tools.push(Tool::Time); }
+    if cfg.enable_web_search {
+        tools.push(Tool::WebSearch);
+    }
+    if cfg.enable_time_now {
+        tools.push(Tool::Time);
+    }
 
     let res: ResponsesResult = call_responses(
         client,
@@ -66,10 +68,7 @@ pub async fn generate_reply(
         previous_response_id,
         if tools.is_empty() { None } else { Some(tools) },
     )
-        .await?;
+    .await?;
 
-    Ok(ReplyResult {
-        text: res.text,
-        response_id: res.id,
-    })
+    Ok(ReplyResult { text: res.text, response_id: res.id })
 }

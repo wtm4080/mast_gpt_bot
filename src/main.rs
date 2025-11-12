@@ -1,9 +1,9 @@
-mod mastodon;
-mod openai_api;
-mod util;
-mod notification_stream;
 mod config;
 mod conversation_store;
+mod mastodon;
+mod notification_stream;
+mod openai_api;
+mod util;
 
 use crate::conversation_store::ConversationStore;
 use anyhow::Result;
@@ -37,7 +37,7 @@ async fn main() -> Result<()> {
             &config_stream,
             conv_store_stream,
         )
-            .await
+        .await
         {
             eprintln!("Streaming task error: {:?}", e);
         }
@@ -72,4 +72,3 @@ async fn do_free_toot(client: &reqwest::Client, config: &BotConfig) -> Result<()
 
     Ok(())
 }
-

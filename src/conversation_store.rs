@@ -1,5 +1,5 @@
-use rusqlite::{params, Connection};
-use anyhow::{Result, Context};
+use anyhow::{Context, Result};
+use rusqlite::{Connection, params};
 use std::{
     path::Path,
     sync::{Arc, Mutex},
@@ -14,8 +14,7 @@ pub struct ConversationStore {
 
 impl ConversationStore {
     pub fn new<P: AsRef<Path>>(path: P) -> Result<Self> {
-        let conn = Connection::open(path)
-            .context("Failed to open SQLite database")?;
+        let conn = Connection::open(path).context("Failed to open SQLite database")?;
 
         conn.execute_batch(
             r#"
@@ -29,27 +28,22 @@ impl ConversationStore {
                 updated_at INTEGER NOT NULL
             );
             "#,
-        ).context("Failed to init conversations table")?;
+        )
+        .context("Failed to init conversations table")?;
 
-        Ok(Self {
-            inner: Arc::new(Mutex::new(conn)),
-        })
+        Ok(Self { inner: Arc::new(Mutex::new(conn)) })
     }
 
-    pub async fn get_previous_response_id(
-        &self,
-        thread_key: &str,
-    ) -> Result<Option<String>> {
+    pub async fn get_previous_response_id(&self, thread_key: &str) -> Result<Option<String>> {
         let thread_key = thread_key.to_string();
         let conn = self.inner.clone();
 
         // ← ここでクロージャの戻り値型を明示しておくと推論が安定する
-        let opt: Option<String> =
-            task::spawn_blocking(move || -> std::result::Result<Option<String>, rusqlite::Error> {
+        let opt: Option<String> = task::spawn_blocking(
+            move || -> std::result::Result<Option<String>, rusqlite::Error> {
                 let conn = conn.lock().unwrap();
-                let mut stmt = conn.prepare(
-                    "SELECT last_response_id FROM conversations WHERE thread_key = ?1",
-                )?;
+                let mut stmt = conn
+                    .prepare("SELECT last_response_id FROM conversations WHERE thread_key = ?1")?;
                 let mut rows = stmt.query(params![thread_key])?;
                 if let Some(row) = rows.next()? {
                     let id: String = row.get(0)?;
@@ -57,25 +51,19 @@ impl ConversationStore {
                 } else {
                     Ok(None)
                 }
-            })
-                .await
-                .expect("spawn_blocking failed")?;
+            },
+        )
+        .await
+        .expect("spawn_blocking failed")?;
 
         Ok(opt)
     }
 
-    pub async fn upsert_last_response_id(
-        &self,
-        thread_key: &str,
-        response_id: &str,
-    ) -> Result<()> {
+    pub async fn upsert_last_response_id(&self, thread_key: &str, response_id: &str) -> Result<()> {
         let thread_key = thread_key.to_string();
         let response_id = response_id.to_string();
         let conn = self.inner.clone();
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs() as i64;
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs() as i64;
 
         task::spawn_blocking(move || -> std::result::Result<(), rusqlite::Error> {
             let conn = conn.lock().unwrap();
@@ -91,8 +79,8 @@ impl ConversationStore {
             )?;
             Ok(())
         })
-            .await
-            .expect("spawn_blocking failed")?;
+        .await
+        .expect("spawn_blocking failed")?;
 
         Ok(())
     }

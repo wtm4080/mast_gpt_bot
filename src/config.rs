@@ -1,11 +1,11 @@
-use anyhow::{anyhow, bail, Context, Result};
-use std::{env, str::FromStr, time::Duration};
+use anyhow::{Context, Result, anyhow, bail};
 use std::fmt::Display;
+use std::{env, str::FromStr, time::Duration};
 
 #[derive(Clone, Debug)]
 pub struct BotConfig {
     // --- 必須 ---
-    pub mastodon_base: String,      // 例: https://mastodon.social
+    pub mastodon_base: String, // 例: https://mastodon.social
     pub mastodon_access_token: String,
     pub openai_model: String,
     pub openai_api_key: String,
@@ -19,7 +19,7 @@ pub struct BotConfig {
     pub reply_temperature: f32,
     pub free_toot_temperature: f32,
 
-    pub visibility: Visibility,     // 投稿公開範囲
+    pub visibility: Visibility, // 投稿公開範囲
 
     pub reply_min_interval: Duration,
 
@@ -29,16 +29,21 @@ pub struct BotConfig {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub enum Visibility { Public, Unlisted, Private, Direct }
+pub enum Visibility {
+    Public,
+    Unlisted,
+    Private,
+    Direct,
+}
 
 impl FromStr for Visibility {
     type Err = anyhow::Error;
     fn from_str(s: &str) -> Result<Self> {
         match s.to_ascii_lowercase().as_str() {
-            "public"   => Ok(Self::Public),
+            "public" => Ok(Self::Public),
             "unlisted" => Ok(Self::Unlisted),
-            "private"  => Ok(Self::Private),
-            "direct"   => Ok(Self::Direct),
+            "private" => Ok(Self::Private),
+            "direct" => Ok(Self::Direct),
             other => bail!("unknown VISIBILITY: {other}"),
         }
     }
@@ -69,10 +74,10 @@ impl BotConfig {
         let openai_api_key = must("OPENAI_API_KEY")?;
 
         // 任意
-        let streaming_base_url = opt("#MASTODON_STREAMING_URL")
-            .unwrap_or_else(|| default_streaming_ws(&mastodon_base));
+        let streaming_base_url =
+            opt("#MASTODON_STREAMING_URL").unwrap_or_else(|| default_streaming_ws(&mastodon_base));
         let prompts_path = opt("PROMPTS_PATH").unwrap_or_else(|| "config/prompts.json".into());
-        let bot_db_path  = opt("BOT_DB_PATH").unwrap_or_else(|| "bot_state.sqlite".into());
+        let bot_db_path = opt("BOT_DB_PATH").unwrap_or_else(|| "bot_state.sqlite".into());
 
         let free_toot_interval: u64 = parse("FREE_TOOT_INTERVAL_SECS", 3600)?;
         let free_toot_interval = Duration::from_secs(free_toot_interval);
@@ -128,8 +133,7 @@ where
     <T as FromStr>::Err: Display, // エラーメッセージ整形用
 {
     match opt(key) {
-        Some(s) => s.parse::<T>()
-            .map_err(|e| anyhow!("failed to parse {key}='{s}': {e}")),
+        Some(s) => s.parse::<T>().map_err(|e| anyhow!("failed to parse {key}='{s}': {e}")),
         None => Ok(default),
     }
 }
@@ -139,9 +143,9 @@ where
     <T as FromStr>::Err: Display,
 {
     match opt(key) {
-        Some(s) => s.parse::<T>()
-            .map_err(|e| anyhow!("failed to parse {key}='{s}': {e}")),
-        None => default.parse::<T>()
+        Some(s) => s.parse::<T>().map_err(|e| anyhow!("failed to parse {key}='{s}': {e}")),
+        None => default
+            .parse::<T>()
             .map_err(|e| anyhow!("failed to parse default of {key} ('{default}'): {e}")),
     }
 }
@@ -181,6 +185,5 @@ impl std::fmt::Debug for Redacted<'_> {
     }
 }
 fn mask(s: &str) -> String {
-    if s.len() <= 6 { "***".into() }
-    else { format!("{}***", &s[..3]) }
+    if s.len() <= 6 { "***".into() } else { format!("{}***", &s[..3]) }
 }

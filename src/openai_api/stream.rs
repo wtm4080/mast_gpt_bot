@@ -3,8 +3,8 @@ use crate::openai_api::types::{
 };
 
 use anyhow::{Context, Result};
-use reqwest::header::{AUTHORIZATION, CONTENT_TYPE};
 use reqwest::Client;
+use reqwest::header::{AUTHORIZATION, CONTENT_TYPE};
 
 const OPENAI_RESPONSES_URL: &str = "https://api.openai.com/v1/responses";
 
@@ -43,10 +43,8 @@ pub async fn call_responses(
         anyhow::bail!("OpenAI error {}: {}", status, text);
     }
 
-    let body: ResponsesResponse = resp
-        .json()
-        .await
-        .context("Failed to parse Responses API JSON")?;
+    let body: ResponsesResponse =
+        resp.json().await.context("Failed to parse Responses API JSON")?;
 
     let mut out = String::new();
     for item in body.output {
@@ -59,8 +57,5 @@ pub async fn call_responses(
         }
     }
 
-    Ok(ResponsesResult {
-        id: body.id,
-        text: out.trim().to_string(),
-    })
+    Ok(ResponsesResult { id: body.id, text: out.trim().to_string() })
 }

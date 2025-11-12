@@ -1,11 +1,11 @@
 use anyhow::Result;
-use reqwest::Client;
 use chrono::{Local, Timelike};
+use reqwest::Client;
 
+use crate::config::BotConfig;
+use crate::openai_api::prompts::PROMPTS;
 use crate::openai_api::stream::call_responses;
 use crate::openai_api::types::{ChatMessage, Tool};
-use crate::openai_api::prompts::PROMPTS;
-use crate::config::BotConfig;
 
 /// 時間帯に応じて、どの free_toot プロンプトを使うか選ぶ
 fn select_free_toot_messages() -> (Vec<ChatMessage>, &'static str) {
@@ -35,8 +35,12 @@ pub async fn generate_free_toot(client: &Client, cfg: &BotConfig) -> Result<Stri
     let temperature = cfg.free_toot_temperature;
 
     let mut tools = Vec::new();
-    if cfg.enable_web_search { tools.push(Tool::WebSearch); }
-    if cfg.enable_time_now  { tools.push(Tool::Time); }
+    if cfg.enable_web_search {
+        tools.push(Tool::WebSearch);
+    }
+    if cfg.enable_time_now {
+        tools.push(Tool::Time);
+    }
 
     let res = call_responses(
         client,
@@ -48,7 +52,7 @@ pub async fn generate_free_toot(client: &Client, cfg: &BotConfig) -> Result<Stri
         None, // previous_response_id は自由トゥートでは未使用
         if tools.is_empty() { None } else { Some(tools) },
     )
-        .await?;
+    .await?;
 
     Ok(res.text)
 }

@@ -1,7 +1,10 @@
 use crate::openai_api::types::ChatMessage;
 use once_cell::sync::Lazy;
 use serde::Deserialize;
-use std::{fs, path::{Path, PathBuf}};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
 #[derive(Debug, Deserialize)]
 pub struct PromptConfig {
@@ -63,10 +66,6 @@ pub static PROMPTS: Lazy<PromptConfig> = Lazy::new(|| {
     });
 
     serde_json::from_str::<PromptConfig>(&data).unwrap_or_else(|e| {
-        panic!(
-            "Failed to parse prompts JSON {}\n  error: {}",
-            resolved.display(),
-            e
-        )
+        panic!("Failed to parse prompts JSON {}\n  error: {}", resolved.display(), e)
     })
 });
