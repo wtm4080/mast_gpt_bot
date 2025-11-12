@@ -6,14 +6,16 @@ mod openai_api;
 mod util;
 mod notification_stream;
 mod config;
+mod conversation_store;
 
+use crate::conversation_store::ConversationStore;
 use anyhow::Result;
-use dotenvy::dotenv;
 use config::BotConfig;
+use dotenvy::dotenv;
 use mastodon::post_status;
-use notification_stream::run_notification_stream;
 use openai_api::generate_free_toot;
 use std::env;
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::sleep;
 
@@ -66,7 +68,13 @@ async fn main() -> Result<()> {
         }
     });
 
-    // ★ 共通設定を構造体にまとめる
+    let db_path =
+        env::var("BOT_DB_PATH").unwrap_or_else(|_| "bot_state.sqlite".to_string());
+    let conv_store = ConversationStore::new(&db_path)?;
+    let conv_store = Arc::new(conv_store);
+
+    let client = reqwest::Client::new();
+    // 共通設定を構造体にまとめる
     let config = BotConfig {
         mastodon_base,
         mastodon_token,
@@ -79,20 +87,23 @@ async fn main() -> Result<()> {
         free_toot_temperature,
     };
 
-    let client = reqwest::Client::builder()
-        .user_agent("mastodon-gpt-bot/0.2")
-        .build()?;
-
     println!("Starting Mastodon GPT bot (streaming mode)…");
     println!("Streaming URL base: {}", config.streaming_base_url);
 
     // 1. 通知ストリーム → メンションに返信
     let client_stream = client.clone();
     let config_stream = config.clone();
+    let conv_store_stream = conv_store.clone();
 
     let stream_task = tokio::spawn(async move {
-        if let Err(e) = run_notification_stream(&client_stream, &config_stream).await {
-            eprintln!("run_notification_stream exited with error: {:?}", e);
+        if let Err(e) = notification_stream::run_notification_stream(
+            &client_stream,
+            &config_stream,
+            conv_store_stream,
+        )
+            .await
+        {
+            eprintln!("Streaming task error: {:?}", e);
         }
     });
 
@@ -123,7 +134,8 @@ async fn do_free_toot(client: &reqwest::Client, config: &BotConfig) -> Result<()
         &config.openai_api_key,
         config.free_toot_temperature,
     )
-        .await?;
+        .await?
+        .text;
 
     println!("[free toot] {}", text);
 

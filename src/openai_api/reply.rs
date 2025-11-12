@@ -2,8 +2,13 @@ use anyhow::Result;
 use reqwest::Client;
 
 use crate::openai_api::stream::call_responses;
-use crate::openai_api::types::ChatMessage;
+use crate::openai_api::types::{ChatMessage, ResponsesResult};
 use crate::openai_api::prompts::PROMPTS;
+
+pub struct ReplyResult {
+    pub text: String,
+    pub response_id: String,
+}
 
 pub async fn generate_reply(
     client: &Client,
@@ -11,34 +16,28 @@ pub async fn generate_reply(
     api_key: &str,
     user_text: &str,
     conversation_context: Option<&str>,
-    temperature: f32, // BotConfig から渡してるやつ
-) -> Result<String> {
-    // prompts.json からベースのメッセージ配列を取得
-    let mut messages: Vec<ChatMessage> = if let Some(ctx) = conversation_context {
-        // 会話コンテキストあり
-        let mut base = PROMPTS.reply_with_context.clone();
-
-        for msg in &mut base {
-            if msg.role == "user" {
-                msg.content = msg.content.replace("{{CONTEXT}}", ctx);
-            }
-        }
-
-        base
+    temperature: f32,
+    previous_response_id: Option<String>,
+) -> Result<ReplyResult> {
+    // どっちのテンプレを使うかだけ分岐
+    let mut messages: Vec<ChatMessage> = if conversation_context.is_some() {
+        PROMPTS.reply_with_context.clone()
     } else {
-        // 文脈なし（単発メンション）の場合
-        let mut base = PROMPTS.reply_without_context.clone();
-
-        for msg in &mut base {
-            if msg.role == "user" {
-                msg.content = msg.content.replace("{{USER_TEXT}}", user_text);
-            }
-        }
-
-        base
+        PROMPTS.reply_without_context.clone()
     };
 
-    // 念のため system メッセージ保険（通常は prompts.json に入ってる前提）
+    let ctx_str = conversation_context.unwrap_or("");
+
+    // user メッセージにだけプレースホルダ差し替え
+    for msg in &mut messages {
+        if msg.role == "user" {
+            msg.content = msg
+                .content
+                .replace("{{USER_TEXT}}", user_text)
+                .replace("{{CONTEXT}}", ctx_str); // ← もう使わなくても OK（入ってなければ no-op）
+        }
+    }
+
     if !messages.iter().any(|m| m.role == "system") {
         messages.insert(
             0,
@@ -50,14 +49,19 @@ pub async fn generate_reply(
         );
     }
 
-    // Responses API を呼ぶ（max_output_tokens は適当に 256 くらい）
-    call_responses(
+    let res: ResponsesResult = call_responses(
         client,
         model,
         api_key,
         messages,
         Some(temperature),
         Some(256),
+        previous_response_id,
     )
-        .await
+        .await?;
+
+    Ok(ReplyResult {
+        text: res.text,
+        response_id: res.id,
+    })
 }

@@ -1,4 +1,6 @@
-use crate::openai_api::types::{ChatMessage, ResponsesRequest, ResponsesResponse};
+use crate::openai_api::types::{
+    ChatMessage, ResponsesRequest, ResponsesResponse, ResponsesResult,
+};
 
 use anyhow::{Context, Result};
 use reqwest::header::{AUTHORIZATION, CONTENT_TYPE};
@@ -6,7 +8,7 @@ use reqwest::Client;
 
 const OPENAI_RESPONSES_URL: &str = "https://api.openai.com/v1/responses";
 
-/// Responses API を叩いて、テキスト出力を 1 本の String にまとめて返す
+/// Responses API を叩いて、テキストと response.id を返す
 pub async fn call_responses(
     client: &Client,
     model: &str,
@@ -14,12 +16,14 @@ pub async fn call_responses(
     messages: Vec<ChatMessage>,
     temperature: Option<f32>,
     max_output_tokens: Option<u32>,
-) -> Result<String> {
+    previous_response_id: Option<String>,
+) -> Result<ResponsesResult> {
     let req_body = ResponsesRequest {
         model: model.to_string(),
         input: messages,
         temperature,
         max_output_tokens,
+        previous_response_id,
     };
 
     let resp = client
@@ -42,9 +46,7 @@ pub async fn call_responses(
         .await
         .context("Failed to parse Responses API JSON")?;
 
-    // output[*].content[*].text (type == "output_text") を順番に連結する
     let mut out = String::new();
-
     for item in body.output {
         for c in item.content {
             if c.content_type == "output_text" {
@@ -55,5 +57,8 @@ pub async fn call_responses(
         }
     }
 
-    Ok(out.trim().to_string())
+    Ok(ResponsesResult {
+        id: body.id,
+        text: out.trim().to_string(),
+    })
 }

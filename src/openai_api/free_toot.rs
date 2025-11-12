@@ -2,7 +2,7 @@ use anyhow::Result;
 use reqwest::Client;
 
 use crate::openai_api::stream::call_responses;
-use crate::openai_api::types::ChatMessage;
+use crate::openai_api::types::{ChatMessage, ResponsesResult};
 use crate::openai_api::prompts::PROMPTS;
 
 pub async fn generate_free_toot(
@@ -10,7 +10,7 @@ pub async fn generate_free_toot(
     model: &str,
     api_key: &str,
     temperature: f32,
-) -> Result<String> {
+) -> Result<ResponsesResult> {
     // prompts.json からそのまま取得
     let messages: Vec<ChatMessage> = PROMPTS.free_toot.clone();
 
@@ -21,6 +21,7 @@ pub async fn generate_free_toot(
         messages,
         Some(temperature),
         Some(256),
+        None,
     )
         .await
 }

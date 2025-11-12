@@ -69,3 +69,16 @@ docker-compose.override.yml
 # Mastodon / OpenAI のトークン類を直書きしたくなったとき用の保険
 tokens.json
 secrets.json
+
+# SQLite DB
+bot_state.sqlite
+bot_state.sqlite-journal
+bot_state.sqlite-shm
+bot_state.sqlite-wal
+
+# 汎用的に SQLite / その他DB をまとめて無視したいなら
+*.sqlite
+*.sqlite3
+*.db
+*.db-shm
+*.db-wal
