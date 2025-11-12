@@ -24,7 +24,7 @@ pub async fn run_notification_stream(
         println!("Connecting to Mastodon streaming API…");
 
         let streaming_base_url = &config.streaming_base_url;
-        let mastodon_token = &config.mastodon_token;
+        let mastodon_token = &config.mastodon_access_token;
 
         match connect_stream(streaming_base_url, mastodon_token).await {
             Ok((mut ws_read, url)) => {
@@ -138,7 +138,7 @@ async fn handle_ws_text(
         match fetch_status_context(
             client,
             &config.mastodon_base,
-            &config.mastodon_token,
+            &config.mastodon_access_token,
             &status.id,
         )
             .await
@@ -193,7 +193,7 @@ async fn handle_ws_text(
             if let Err(e) = post_reply(
                 client,
                 &config.mastodon_base,
-                &config.mastodon_token,
+                &config.mastodon_access_token,
                 status,
                 &notif.account.acct,
                 &reply_result.text,

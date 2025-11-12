@@ -1,8 +1,11 @@
 ///! Mastodon API まわり（型＋HTTP）
 
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
+use reqwest::Client;
 use reqwest::header::AUTHORIZATION;
 use serde::{Deserialize, Serialize};
+use serde_json::json;
+use crate::config::BotConfig;
 
 #[derive(Debug, Deserialize)]
 pub struct Notification {
@@ -35,12 +38,6 @@ struct NewStatusReply<'a> {
     visibility: &'a str,
 }
 
-#[derive(Debug, Serialize)]
-struct NewStatusPlain<'a> {
-    status: &'a str,
-    visibility: &'a str,
-}
-
 #[derive(Debug, Deserialize)]
 pub struct StatusContext {
     pub ancestors: Vec<Status>,
@@ -50,7 +47,7 @@ pub struct StatusContext {
 
 /// 会話スレッドの文脈（ancestors / descendants）を取得
 pub async fn fetch_status_context(
-    client: &reqwest::Client,
+    client: &Client,
     base_url: &str,
     token: &str,
     status_id: &str,
@@ -76,7 +73,7 @@ pub async fn fetch_status_context(
 
 /// 返信を投稿
 pub async fn post_reply(
-    client: &reqwest::Client,
+    client: &Client,
     base_url: &str,
     token: &str,
     reply_to: &Status,
@@ -111,29 +108,36 @@ pub async fn post_reply(
 }
 
 /// 自由ポスト（返信じゃない普通のトゥート）を投稿
-pub async fn post_status(
-    client: &reqwest::Client,
-    base_url: &str,
-    token: &str,
-    body: &str,
-    visibility: &str,
-) -> Result<()> {
-    let url = format!("{}/api/v1/statuses", base_url);
+pub async fn post_status(client: &Client, cfg: &BotConfig, text: &str) -> Result<()> {
+    // エンドポイント
+    let url = format!("{}/api/v1/statuses", cfg.mastodon_base);
 
-    let new_status = NewStatusPlain { status: body, visibility };
+    // 可視性（Visibility -> &str 変換）
+    // 既存の Visibility が Display 実装済みなら to_string() でOK。
+    // 未実装なら match で文字列に落とす。
+    let visibility_str = cfg.visibility.to_string();
 
-    let resp = client
+    // 本文が空は弾く（念のため）
+    let status = text.trim();
+    if status.is_empty() {
+        return Err(anyhow!("post_status: empty status"));
+    }
+
+    // リクエスト作成
+    let req = client
         .post(&url)
-        .header(AUTHORIZATION, format!("Bearer {}", token))
-        .json(&new_status)
-        .send()
-        .await
-        .context("Mastodon post status (free toot) failed")?;
+        .bearer_auth(&cfg.mastodon_access_token)
+        .form(&json!({
+            "status": status,
+            "visibility": visibility_str,
+        }));
 
+    // 送信
+    let resp = req.send().await?;
     if !resp.status().is_success() {
-        let status = resp.status();
-        let text = resp.text().await.unwrap_or_default();
-        anyhow::bail!("Mastodon post error {}: {}", status, text);
+        let code = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        return Err(anyhow!("post_status: http {}: {}", code, body));
     }
 
     Ok(())

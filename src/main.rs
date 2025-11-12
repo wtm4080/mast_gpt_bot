@@ -68,14 +68,7 @@ async fn do_free_toot(client: &reqwest::Client, config: &BotConfig) -> Result<()
 
     println!("[free toot] {}", text);
 
-    post_status(
-        client,
-        &config.mastodon_base,
-        &config.mastodon_token,
-        &text,
-        &config.visibility.to_string(),
-    )
-        .await?;
+    post_status(client, config, &text).await?;
 
     Ok(())
 }

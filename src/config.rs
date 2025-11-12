@@ -6,7 +6,7 @@ use std::fmt::Display;
 pub struct BotConfig {
     // --- 必須 ---
     pub mastodon_base: String,      // 例: https://mastodon.social
-    pub mastodon_token: String,
+    pub mastodon_access_token: String,
     pub openai_model: String,
     pub openai_api_key: String,
 
@@ -91,7 +91,7 @@ impl BotConfig {
 
         Ok(Self {
             mastodon_base,
-            mastodon_token,
+            mastodon_access_token: mastodon_token,
             openai_model,
             openai_api_key,
             streaming_base_url,
@@ -166,7 +166,7 @@ impl std::fmt::Debug for Redacted<'_> {
         let c = self.0;
         f.debug_struct("BotConfig")
             .field("mastodon_base", &c.mastodon_base)
-            .field("mastodon_token", &mask(&c.mastodon_token))
+            .field("mastodon_token", &mask(&c.mastodon_access_token))
             .field("openai_model", &c.openai_model)
             .field("openai_api_key", &mask(&c.openai_api_key))
             .field("streaming_base_url", &c.streaming_base_url)
