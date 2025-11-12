@@ -1,15 +1,30 @@
-version: "3.8"
+version: "3.9"
 
 services:
   mastodon-gpt-bot:
     build: .
     container_name: mastodon-gpt-bot
     restart: unless-stopped
+
+    # .env から共通の環境変数を読み込む
+    env_file:
+      - .env
+
+    # 必要ならデフォルト値をここで上書きもできる
     environment:
-      # Mastodon
-      MASTODON_BASE_URL: "https://kirishima.cloud"
-      MASTODON_ACCESS_TOKEN: "${MASTODON_ACCESS_TOKEN}"
-      # OpenAI
-      OPENAI_API_KEY: "${OPENAI_API_KEY}"
-      OPENAI_MODEL: "ft:gpt-4.1-mini-2025-04-14:atcurio::Cady3zPO"
-      FREE_TOOT_INTERVAL_SECS: "3600"
+      # 公開範囲: .env になければ unlisted をデフォルトに
+      MASTODON_POST_VISIBILITY: ${MASTODON_POST_VISIBILITY:-unlisted}
+      # 自由トゥート間隔: デフォルト1時間
+      FREE_TOOT_INTERVAL_SECS: ${FREE_TOOT_INTERVAL_SECS:-3600}
+
+    # 外から叩かれるAPIじゃないのでポート公開は不要
+    # ports:
+    #   - "8080:8080"
+
+    # ネットワークはデフォルト bridge で十分
+    # networks:
+    #   - default
+
+# networks:
+#   default:
+#     driver: bridge

@@ -1,23 +1,33 @@
-FROM rust:1.82 as builder
+# ===== ビルド用ステージ =====
+FROM rust:1.82-bullseye AS builder
 
-WORKDIR /app
+WORKDIR /usr/src/app
 
-# 依存だけ先にコピーしてビルドキャッシュ効かせる
+# 依存関係だけ先に解決してキャッシュを効かせる
 COPY Cargo.toml Cargo.lock ./
-RUN mkdir src && echo "fn main() {}" > src/main.rs
-RUN cargo build --release || true
-
-# 本体
+# 必要ならここで dummy src を置いて先に依存だけビルドする手もあるけど、
+# シンプルに全部コピーでもOK
 COPY src ./src
+
+# リリースビルド
 RUN cargo build --release
 
-# ランタイム用の軽いイメージ
-FROM debian:stable-slim
+# ===== 実行用ステージ =====
+FROM debian:bookworm-slim
 
-RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
+# TLS用のルート証明書だけ入れて軽量に
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-COPY --from=builder /app/target/release/mastodon_gpt_bot /usr/local/bin/mastodon_gpt_bot
 
-# 環境変数は docker-compose 側で渡す
-ENTRYPOINT ["/usr/local/bin/mastodon_gpt_bot"]
+# ビルドしたバイナリをコピー
+# バイナリ名は crate 名と同じ `mast_gpt_bot` を想定
+COPY --from=builder /usr/src/app/target/release/mast_gpt_bot /app/mast_gpt_bot
+
+# ログ欲しければ適当に
+ENV RUST_LOG=info
+
+# コンテナ起動時に実行するコマンド
+CMD ["./mast_gpt_bot"]
