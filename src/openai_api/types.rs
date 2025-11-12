@@ -1,35 +1,40 @@
 use serde::{Deserialize, Serialize};
 
-/// Hosted tool kinds for Responses API
-#[derive(Debug, Serialize, Clone)]
-#[serde(tag = "type")]
-pub enum Tool {
-    /// Built-in web search (OpenAI Index)
-    /// Docs/examples: cookbook + guides
-    #[serde(rename = "web_search")]
-    WebSearch,
-    /// Current time tool
-    /// (Hosted tool that lets the model ask for "now")
-    #[serde(rename = "time")]
-    Time,
-}
-
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ChatMessage {
     pub role: String,
     pub content: String,
 }
 
+// Hosted tools (Responses API)
+#[derive(Debug, Serialize, Clone)]
+#[serde(tag = "type")]
+pub enum Tool {
+    // Official hosted web search tool (preview)
+    // NOTE: Some accounts may expose a date-suffixed variant like "web_search_preview_2025_03_11".
+    // If必要ならENVで切替できるようにしてもOK。
+    #[serde(rename = "web_search_preview")]
+    WebSearchPreview,
+
+    // もし将来の互換のために追加したい場合は↓を活かす:
+    // #[serde(rename = "web_search_preview_2025_03_11")]
+    // WebSearchPreview20250311,
+}
+
 #[derive(Debug, Serialize)]
 pub struct ResponsesRequest {
     pub model: String,
     pub input: Vec<ChatMessage>,
+
     #[serde(skip_serializing_if = "Option::is_none")]
     pub temperature: Option<f32>,
+
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_output_tokens: Option<u32>,
+
     #[serde(skip_serializing_if = "Option::is_none")]
     pub previous_response_id: Option<String>,
+
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tools: Option<Vec<Tool>>,
 }

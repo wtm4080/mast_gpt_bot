@@ -25,7 +25,6 @@ pub struct BotConfig {
 
     // Tools
     pub enable_web_search: bool,
-    pub enable_time_now: bool,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -92,7 +91,6 @@ impl BotConfig {
 
         // tools
         let enable_web_search: bool = parse("ENABLE_WEB_SEARCH", false)?;
-        let enable_time_now: bool = parse("ENABLE_TIME_NOW", true)?;
 
         Ok(Self {
             mastodon_base,
@@ -108,7 +106,6 @@ impl BotConfig {
             visibility,
             reply_min_interval,
             enable_web_search,
-            enable_time_now,
         })
     }
 
