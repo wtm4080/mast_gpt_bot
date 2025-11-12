@@ -11,6 +11,7 @@ pub async fn generate_reply(
     api_key: &str,
     user_text: &str,
     conversation_context: Option<&str>,
+    temperature: f32,
 ) -> Result<String> {
     // prompts.json からベースのメッセージ配列を取得
     let mut messages: Vec<ChatMessage> = if let Some(ctx) = conversation_context {
@@ -51,6 +52,5 @@ pub async fn generate_reply(
         );
     }
 
-    // 会話返信はちょい変化欲しいので 0.6 前後
-    chat_stream(client, model, api_key, messages, Some(0.6)).await
+    chat_stream(client, model, api_key, messages, Some(temperature)).await
 }

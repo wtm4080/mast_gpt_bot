@@ -44,6 +44,16 @@ async fn main() -> Result<()> {
         .and_then(|s| s.parse::<u64>().ok())
         .unwrap_or(1000); // デフォルト 1000ms = 1秒
 
+    let reply_temperature: f32 = env::var("REPLY_TEMPERATURE")
+        .ok()
+        .and_then(|s| s.parse::<f32>().ok())
+        .unwrap_or(0.6);
+
+    let free_toot_temperature: f32 = env::var("FREE_TOOT_TEMPERATURE")
+        .ok()
+        .and_then(|s| s.parse::<f32>().ok())
+        .unwrap_or(0.7);
+
     // Streaming API のベース URL
     let streaming_base_url = env::var("MASTODON_STREAMING_URL").unwrap_or_else(|_| {
         let base = mastodon_base.trim_end_matches('/');
@@ -65,6 +75,8 @@ async fn main() -> Result<()> {
         post_visibility,
         streaming_base_url,
         reply_min_interval_ms,
+        reply_temperature,
+        free_toot_temperature,
     };
 
     let client = reqwest::Client::builder()
@@ -109,6 +121,7 @@ async fn do_free_toot(client: &reqwest::Client, config: &BotConfig) -> Result<()
         client,
         &config.openai_model,
         &config.openai_api_key,
+        config.free_toot_temperature,
     )
         .await?;
 

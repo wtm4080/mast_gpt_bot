@@ -156,6 +156,7 @@ async fn handle_ws_text(
         &config.openai_api_key,
         &plain,
         conversation_context.as_deref(),
+        config.reply_temperature,
     )
         .await
     {

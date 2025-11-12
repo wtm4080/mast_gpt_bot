@@ -9,10 +9,10 @@ pub async fn generate_free_toot(
     client: &Client,
     model: &str,
     api_key: &str,
+    temperature: f32,
 ) -> Result<String> {
     // prompts.json からそのまま取得して clone
     let messages: Vec<ChatMessage> = PROMPTS.free_toot.clone();
 
-    // 自由トゥートはちょっと遊ばせて 0.7 くらい
-    chat_stream(client, model, api_key, messages, Some(0.7)).await
+    chat_stream(client, model, api_key, messages, Some(temperature)).await
 }

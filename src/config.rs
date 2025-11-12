@@ -11,4 +11,7 @@ pub struct BotConfig {
 
     /// リプライ用の最小インターバル（ミリ秒）
     pub reply_min_interval_ms: u64,
+
+    pub reply_temperature: f32,
+    pub free_toot_temperature: f32,
 }
