@@ -1,7 +1,7 @@
 use anyhow::Result;
 use reqwest::Client;
 
-use crate::openai_api::stream::chat_stream;
+use crate::openai_api::stream::call_responses;
 use crate::openai_api::types::ChatMessage;
 use crate::openai_api::prompts::PROMPTS;
 
@@ -11,14 +11,13 @@ pub async fn generate_reply(
     api_key: &str,
     user_text: &str,
     conversation_context: Option<&str>,
-    temperature: f32,
+    temperature: f32, // BotConfig から渡してるやつ
 ) -> Result<String> {
     // prompts.json からベースのメッセージ配列を取得
     let mut messages: Vec<ChatMessage> = if let Some(ctx) = conversation_context {
         // 会話コンテキストあり
         let mut base = PROMPTS.reply_with_context.clone();
 
-        // user ロールのメッセージの {{CONTEXT}} を置換
         for msg in &mut base {
             if msg.role == "user" {
                 msg.content = msg.content.replace("{{CONTEXT}}", ctx);
@@ -27,10 +26,9 @@ pub async fn generate_reply(
 
         base
     } else {
-        // 文脈なし（単発メンションなど）の場合
+        // 文脈なし（単発メンション）の場合
         let mut base = PROMPTS.reply_without_context.clone();
 
-        // user ロールのメッセージの {{USER_TEXT}} を置換
         for msg in &mut base {
             if msg.role == "user" {
                 msg.content = msg.content.replace("{{USER_TEXT}}", user_text);
@@ -40,7 +38,7 @@ pub async fn generate_reply(
         base
     };
 
-    // 念のため system メッセージがなかった場合の保険（通常は prompts.json に入ってる想定）
+    // 念のため system メッセージ保険（通常は prompts.json に入ってる前提）
     if !messages.iter().any(|m| m.role == "system") {
         messages.insert(
             0,
@@ -52,5 +50,14 @@ pub async fn generate_reply(
         );
     }
 
-    chat_stream(client, model, api_key, messages, Some(temperature)).await
+    // Responses API を呼ぶ（max_output_tokens は適当に 256 くらい）
+    call_responses(
+        client,
+        model,
+        api_key,
+        messages,
+        Some(temperature),
+        Some(256),
+    )
+        .await
 }

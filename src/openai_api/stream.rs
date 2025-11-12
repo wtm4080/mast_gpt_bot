@@ -1,35 +1,35 @@
-use crate::openai_api::types::{ChatMessage, ChatRequest, ChatStreamResponse};
+use crate::openai_api::types::{ChatMessage, ResponsesRequest, ResponsesResponse};
 
 use anyhow::{Context, Result};
-use futures_util::StreamExt;
 use reqwest::header::{AUTHORIZATION, CONTENT_TYPE};
 use reqwest::Client;
 
-const OPENAI_CHAT_URL: &str = "https://api.openai.com/v1/chat/completions";
+const OPENAI_RESPONSES_URL: &str = "https://api.openai.com/v1/responses";
 
-pub async fn chat_stream(
+/// Responses API を叩いて、テキスト出力を 1 本の String にまとめて返す
+pub async fn call_responses(
     client: &Client,
     model: &str,
     api_key: &str,
     messages: Vec<ChatMessage>,
     temperature: Option<f32>,
+    max_output_tokens: Option<u32>,
 ) -> Result<String> {
-    let req_body = ChatRequest {
+    let req_body = ResponsesRequest {
         model: model.to_string(),
-        messages,
+        input: messages,
         temperature,
-        stream: Some(true),
+        max_output_tokens,
     };
 
     let resp = client
-        .post(OPENAI_CHAT_URL)
+        .post(OPENAI_RESPONSES_URL)
         .header(AUTHORIZATION, format!("Bearer {}", api_key))
         .header(CONTENT_TYPE, "application/json")
-        .header("Accept", "text/event-stream")
         .json(&req_body)
         .send()
         .await
-        .context("OpenAI API request failed (stream)")?;
+        .context("OpenAI Responses API request failed")?;
 
     if !resp.status().is_success() {
         let status = resp.status();
@@ -37,58 +37,23 @@ pub async fn chat_stream(
         anyhow::bail!("OpenAI error {}: {}", status, text);
     }
 
-    let mut stream = resp.bytes_stream();
-    let mut output = String::new();
-    let mut pending = String::new(); // チャンク横断バッファ
+    let body: ResponsesResponse = resp
+        .json()
+        .await
+        .context("Failed to parse Responses API JSON")?;
 
-    while let Some(chunk) = stream.next().await {
-        let chunk = chunk.context("failed to read streaming chunk")?;
-        let text = String::from_utf8_lossy(&chunk);
+    // output[*].content[*].text (type == "output_text") を順番に連結する
+    let mut out = String::new();
 
-        pending.push_str(&text);
-
-        // pending 内に '\n' がある間、1行ずつ処理
-        loop {
-            if let Some(pos) = pending.find('\n') {
-                let line = pending[..pos].to_string();
-                pending = pending[pos + 1..].to_string();
-
-                let line = line.trim();
-                if line.is_empty() {
-                    continue;
+    for item in body.output {
+        for c in item.content {
+            if c.content_type == "output_text" {
+                if let Some(t) = c.text {
+                    out.push_str(&t);
                 }
-                if !line.starts_with("data: ") {
-                    continue;
-                }
-
-                let data = &line["data: ".len()..];
-
-                if data == "[DONE]" {
-                    return Ok(output.trim().to_string());
-                }
-
-                if data.is_empty() {
-                    continue;
-                }
-
-                let parsed: ChatStreamResponse = match serde_json::from_str(data) {
-                    Ok(v) => v,
-                    Err(e) => {
-                        eprintln!("Failed to parse stream JSON: {} | raw: {}", e, data);
-                        continue;
-                    }
-                };
-
-                if let Some(choice) = parsed.choices.get(0) {
-                    if let Some(delta) = &choice.delta.content {
-                        output.push_str(delta);
-                    }
-                }
-            } else {
-                break;
             }
         }
     }
 
-    Ok(output.trim().to_string())
+    Ok(out.trim().to_string())
 }
