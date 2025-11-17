@@ -1,12 +1,12 @@
 //! Mastodon API まわり（型＋HTTP）
 
 use crate::config::BotConfig;
-use anyhow::{Context, Result, anyhow};
-use reqwest::Client;
+use crate::util::fit_for_mastodon_plain;
+use anyhow::{anyhow, Context, Result};
 use reqwest::header::AUTHORIZATION;
+use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use crate::util::fit_for_mastodon_plain;
 
 #[derive(Debug, Deserialize)]
 pub struct Notification {
@@ -17,16 +17,18 @@ pub struct Notification {
     pub account: Account,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct Status {
     pub id: String,
     pub content: String, // HTML
     pub visibility: String,
     #[allow(dead_code)]
     pub in_reply_to_id: Option<String>,
+    #[allow(dead_code)]
+    pub account: Account,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct Account {
     pub acct: String,
     pub bot: Option<bool>,
@@ -50,25 +52,18 @@ pub struct StatusContext {
 pub async fn fetch_status_context(
     client: &Client,
     base_url: &str,
-    token: &str,
+    access_token: &str,
     status_id: &str,
 ) -> Result<StatusContext> {
     let url = format!("{}/api/v1/statuses/{}/context", base_url, status_id);
-
     let resp = client
         .get(&url)
-        .header(AUTHORIZATION, format!("Bearer {}", token))
+        .bearer_auth(access_token)
         .send()
-        .await
-        .context("Mastodon status context request failed")?;
+        .await?
+        .error_for_status()?;
 
-    if !resp.status().is_success() {
-        let status = resp.status();
-        let text = resp.text().await.unwrap_or_default();
-        anyhow::bail!("Mastodon context error {}: {}", status, text);
-    }
-
-    let ctx: StatusContext = resp.json().await.context("parse status context")?;
+    let ctx: StatusContext = resp.json().await?;
     Ok(ctx)
 }
 
