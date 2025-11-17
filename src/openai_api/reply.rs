@@ -114,9 +114,10 @@ fn build_messages(
     });
 
     // オウム返し防止＆回答優先の指示
+    // オウム返し防止：ユーザーの発言をそのまま繰り返すのは禁止
     msgs.push(ChatMessage {
         role: "system".into(),
-        content: "ユーザーの発言をそのまま繰り返さず、必ず内容に沿った回答をしてください。回答した上で、必要に応じて軽いボケやネタを添えてください。".into(),
+        content: "ユーザーの発言をそのまま繰り返すだけの返答は禁止です。必ず質問や発言の内容に答え、そのうえで必要なら短くボケや相槌を添えてください。質問文を引用するときは、その後に必ずあなたの考えを書くこと。".into(),
     });
 
     // リリースノート系の質問の場合は、検索必須＆フォーマット制約を強める
@@ -150,7 +151,7 @@ fn build_messages(
     // 最新投稿を別の user メッセージとして追加
     if !had_user_placeholder {
         msgs.push(ChatMessage {
-            role: "user".into(),
+            role: "system".into(),
             content: user_text.to_string(),
         });
     }
@@ -246,6 +247,31 @@ pub async fn generate_reply(
         }
     }
 
+    // オウム返し検知（通常会話向け）。force_search が true のときは触らない
+    if !force_search && is_parrot_reply(user_text, res.text.trim()) {
+        let base_retry = base_prompt_for_reply(conversation_context);
+        let (mut retry_msgs, _had_user_placeholder, _had_context_placeholder) =
+            apply_placeholders(base_retry, user_text, conversation_context);
+
+        // 「さっきオウム返しだったから、今度はちゃんと答えろ」と明示
+        retry_msgs.push(ChatMessage {
+            role: "system".into(),
+            content: "さっきの返答はユーザーの発言をそのまま繰り返してしまっていました。今度は必ず質問に答えてください。質問文をそのまま返すのではなく、あなたの答えやリアクションを1〜3文で書いてください。".into(),
+        });
+
+        let retry_builder =
+            CallResponsesArgs::new(model, api_key, retry_msgs)
+                .temperature(cfg.reply_temperature)
+                .max_output_tokens(140);
+
+        // オウム返し対策リトライでは web_search は特に強制しない（ツール無しでOK）
+
+        let retry_res: ResponsesResult = call_responses(client, retry_builder).await?;
+        if !retry_res.text.trim().is_empty() {
+            res = retry_res;
+        }
+    }
+
     // 最後の保険：JSONを潰す
     let clean = res.text.trim();
     let final_text = if clean.starts_with('{') || clean.starts_with('[') {
@@ -258,4 +284,16 @@ pub async fn generate_reply(
         text: final_text,
         response_id: res.id,
     })
+}
+
+fn normalize_for_parrot(s: &str) -> String {
+    s.chars()
+        .filter(|c| !c.is_whitespace())
+        .collect::<String>()
+}
+
+fn is_parrot_reply(user_text: &str, reply_text: &str) -> bool {
+    let u = normalize_for_parrot(user_text);
+    let r = normalize_for_parrot(reply_text);
+    !u.is_empty() && !r.is_empty() && u == r
 }
