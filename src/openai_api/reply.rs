@@ -113,6 +113,12 @@ fn build_messages(
         content: format!("CurrentTime(JST): {}", now_tokyo_rfc3339()),
     });
 
+    // オウム返し防止＆回答優先の指示
+    msgs.push(ChatMessage {
+        role: "system".into(),
+        content: "ユーザーの発言をそのまま繰り返さず、必ず内容に沿った回答をしてください。回答した上で、必要に応じて軽いボケやネタを添えてください。".into(),
+    });
+
     // リリースノート系の質問の場合は、検索必須＆フォーマット制約を強める
     if force_search {
         // ここで強い制約を合流
@@ -134,7 +140,7 @@ fn build_messages(
     if let Some(ctx) = conversation_context {
         if !had_context_placeholder {
             msgs.push(ChatMessage {
-                role: "user".into(),
+                role: "system".into(),
                 content: format!("[context]\n{}", ctx),
             });
         }
@@ -208,7 +214,7 @@ pub async fn generate_reply(
         if let Some(ctx) = conversation_context {
             if !had_context_placeholder {
                 retry_msgs.push(ChatMessage {
-                    role: "user".into(),
+                    role: "system".into(),
                     content: format!("[context]\n{}", ctx),
                 });
             }
