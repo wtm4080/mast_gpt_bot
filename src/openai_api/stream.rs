@@ -68,9 +68,12 @@ fn extract_output_text(v: &Value, out: &mut String) {
 
 /// OpenAI Responses API 呼び出し（JSONをValueで受けて安全抽出）
 pub async fn call_responses(client: &Client, args: CallResponsesArgs<'_>) -> Result<ResponsesResult> {
+    let (instructions, input) = split_messages_for_responses(args.messages);
+
     let req_body = ResponsesRequest {
         model: args.model.to_string(),
-        input: args.messages,
+        input,
+        instructions,
         temperature: args.temperature,
         max_output_tokens: args.max_output_tokens,
         previous_response_id: args.previous_response_id,
@@ -107,6 +110,31 @@ pub async fn call_responses(client: &Client, args: CallResponsesArgs<'_>) -> Res
     }
 
     Ok(ResponsesResult { id, text, status: Some(status) })
+}
+
+fn split_messages_for_responses(
+    messages: Vec<ChatMessage>,
+) -> (Option<String>, Vec<ChatMessage>) {
+    let mut system_chunks = Vec::new();
+    let mut input_messages = Vec::new();
+
+    for msg in messages {
+        // role の型が String ならこんな感じ
+        if msg.role == "system" {
+            system_chunks.push(msg.content.clone());
+        } else {
+            input_messages.push(msg);
+        }
+    }
+
+    let instructions = if system_chunks.is_empty() {
+        None
+    } else {
+        // system メッセージが複数あってもまとめて 1 本の instructions にする
+        Some(system_chunks.join("\n\n"))
+    };
+
+    (instructions, input_messages)
 }
 
 #[cfg(test)]

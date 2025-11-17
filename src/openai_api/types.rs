@@ -20,6 +20,9 @@ pub enum Tool {
 pub struct ResponsesRequest {
     pub model: String,
     pub input: Vec<ChatMessage>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub instructions: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub temperature: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
