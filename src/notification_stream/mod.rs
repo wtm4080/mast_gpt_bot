@@ -156,6 +156,15 @@ async fn handle_ws_text(
         println!("  -> previous_response_id for thread {}: {}", thread_key, id);
     }
 
+    // ここで「初回だけ context を渡す」ように分岐
+    let context_for_openai: Option<&str> = if prev_response_id.is_some() {
+        // 2回目以降：OpenAI 側の会話状態に任せる
+        None
+    } else {
+        // 初回だけ Mastodon 側の会話ログをブートストラップとして渡す
+        conversation_context.as_deref()
+    };
+
     // 3. レートリミット
     wait_for_rate_limit(config.reply_min_interval.as_millis() as u64).await;
 
@@ -164,7 +173,7 @@ async fn handle_ws_text(
         client,
         config,
         &plain,
-        conversation_context.as_deref(),
+        context_for_openai,
         prev_response_id,
     )
     .await

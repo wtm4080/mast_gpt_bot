@@ -151,7 +151,7 @@ fn build_messages(
     // 最新投稿を別の user メッセージとして追加
     if !had_user_placeholder {
         msgs.push(ChatMessage {
-            role: "system".into(),
+            role: "user".into(),
             content: user_text.to_string(),
         });
     }
