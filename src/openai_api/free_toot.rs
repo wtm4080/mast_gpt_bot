@@ -1,5 +1,5 @@
 use anyhow::Result;
-use chrono::{DateTime, Timelike, Utc};
+use chrono::{DateTime, Datelike, Timelike, Utc};
 use chrono_tz::Asia::Tokyo;
 use reqwest::Client;
 
@@ -8,21 +8,36 @@ use crate::openai_api::prompts::PROMPTS;
 use crate::openai_api::stream::{call_responses, CallResponsesArgs};
 use crate::openai_api::types::{ChatMessage, Tool};
 
-fn now_tokyo_rfc3339() -> String {
-    let now_utc: DateTime<Utc> = Utc::now();
-    let jst = now_utc.with_timezone(&Tokyo);
-    jst.to_rfc3339()
-}
-
 /// 時間帯に応じて free_toot_*（Vec<ChatMessage>）を選ぶ
 fn pick_free_toot_prompt() -> (Vec<ChatMessage>, &'static str) {
     let hour = Utc::now().with_timezone(&Tokyo).hour();
-    if (5..=10).contains(&hour) {
+    if (5..=8).contains(&hour) {
         (PROMPTS.free_toot_morning.clone(), "morning")
-    } else if (11..=18).contains(&hour) {
+    } else if (9..=15).contains(&hour) {
         (PROMPTS.free_toot_day.clone(), "day")
+    } else if (16..=18).contains(&hour) {
+        // 夕方スロット（テンプレ自体は daytime を流用）
+        (PROMPTS.free_toot_day.clone(), "evening")
     } else {
         (PROMPTS.free_toot_night.clone(), "night")
+    }
+}
+
+fn season_label_from_month(month: u32) -> &'static str {
+    match month {
+        3..=5 => "春",
+        6..=8 => "夏",
+        9..=11 => "秋",
+        _ => "冬", // 12,1,2
+    }
+}
+
+fn time_label_from_hour(hour: u32) -> &'static str {
+    match hour {
+        5..=8 => "朝",
+        9..=15 => "昼",
+        16..=18 => "夕方",
+        _ => "夜",
     }
 }
 
@@ -30,10 +45,23 @@ fn pick_free_toot_prompt() -> (Vec<ChatMessage>, &'static str) {
 fn build_messages_for_free_toot() -> (Vec<ChatMessage>, &'static str) {
     let (mut messages, slot) = pick_free_toot_prompt();
 
+    // JSTの現在時刻を取得
+    let now_utc: DateTime<Utc> = Utc::now();
+    let jst = now_utc.with_timezone(&Tokyo);
+
+    let season = season_label_from_month(jst.month());
+    let time_label = time_label_from_hour(jst.hour());
+
+    // 最後の user メッセージを書き換える
+    if let Some(user_msg) = messages.iter_mut().rev().find(|m| m.role == "user") {
+        // fine-tune に合わせて、季節＋時間帯の指示を埋め込む
+        user_msg.content = format!("{season}の{time_label}のような投稿を生成してください。");
+    }
+
     // 現在時刻（JST）を追加（systemメッセージとして）
     messages.push(ChatMessage {
         role: "system".into(),
-        content: format!("CurrentTime(JST): {}", now_tokyo_rfc3339()),
+        content: format!("CurrentTime(JST): {}", jst.to_rfc3339()),
     });
 
     (messages, slot)
