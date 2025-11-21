@@ -169,6 +169,7 @@ pub async fn generate_reply(
     let force_search = should_force_search(user_text);
 
     let model = &cfg.openai_model;
+    let model_reply = &cfg.openai_reply_model;
     let api_key = &cfg.openai_api_key;
 
     // さらに短め設定（出力が途切れないよう max を控えめに）
@@ -182,7 +183,7 @@ pub async fn generate_reply(
         });
     }
 
-    let mut builder = CallResponsesArgs::new(model, api_key, messages)
+    let mut builder = CallResponsesArgs::new(model, model_reply, api_key, messages)
         .temperature(cfg.reply_temperature)
         .max_output_tokens(140);
 
@@ -193,7 +194,7 @@ pub async fn generate_reply(
         builder = builder.tools(tools);
     }
 
-    let mut res: ResponsesResult = call_responses(client, builder).await?;
+    let mut res: ResponsesResult = call_responses(client, builder, true).await?;
 
     // 再試行（もっと短く＆“未確定”の指示を再強調）
     if res.text.trim().is_empty() || res.status.as_deref() == Some("incomplete") {
@@ -234,14 +235,14 @@ pub async fn generate_reply(
             });
         }
 
-        let mut retry_builder = CallResponsesArgs::new(model, api_key, retry_msgs)
+        let mut retry_builder = CallResponsesArgs::new(model, model_reply, api_key, retry_msgs)
             .temperature(cfg.reply_temperature)
             .max_output_tokens(120);
         if !retry_tools.is_empty() {
             retry_builder = retry_builder.tools(retry_tools);
         }
 
-        let retry_res: ResponsesResult = call_responses(client, retry_builder).await?;
+        let retry_res: ResponsesResult = call_responses(client, retry_builder, true).await?;
         if !retry_res.text.trim().is_empty() {
             res = retry_res;
         }
@@ -260,13 +261,13 @@ pub async fn generate_reply(
         });
 
         let retry_builder =
-            CallResponsesArgs::new(model, api_key, retry_msgs)
+            CallResponsesArgs::new(model, model_reply, api_key, retry_msgs)
                 .temperature(cfg.reply_temperature)
-                .max_output_tokens(140);
+                .max_output_tokens(1024);
 
         // オウム返し対策リトライでは web_search は特に強制しない（ツール無しでOK）
 
-        let retry_res: ResponsesResult = call_responses(client, retry_builder).await?;
+        let retry_res: ResponsesResult = call_responses(client, retry_builder, true).await?;
         if !retry_res.text.trim().is_empty() {
             res = retry_res;
         }

@@ -72,6 +72,7 @@ pub async fn generate_free_toot(client: &Client, cfg: &BotConfig) -> Result<Stri
     println!("[free toot] using {} prompt", slot);
 
     let model = &cfg.openai_model;
+    let model_reply = &cfg.openai_reply_model;
     let api_key = &cfg.openai_api_key;
     let temperature = cfg.free_toot_temperature;
 
@@ -81,12 +82,12 @@ pub async fn generate_free_toot(client: &Client, cfg: &BotConfig) -> Result<Stri
         tools.push(Tool::WebSearchPreview { search_context_size: None });
     }
 
-    let args = CallResponsesArgs::new(model, api_key, messages)
+    let args = CallResponsesArgs::new(model, model_reply, api_key, messages)
         .temperature(temperature)
-        .max_output_tokens(256)
+        .max_output_tokens(1024)
         .tools(tools);
 
-    let res = call_responses(client, args).await?;
+    let res = call_responses(client, args, false).await?;
 
     Ok(res.text)
 }

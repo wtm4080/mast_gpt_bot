@@ -7,6 +7,7 @@ use crate::openai_api::types::{ChatMessage, ResponsesRequest, ResponsesResult, T
 /// `call_responses` に渡す引数まとめ
 pub struct CallResponsesArgs<'a> {
     pub model: &'a str,
+    pub model_reply: &'a str,
     pub api_key: &'a str,
     pub messages: Vec<ChatMessage>,
     pub temperature: Option<f32>,
@@ -16,9 +17,10 @@ pub struct CallResponsesArgs<'a> {
 }
 
 impl<'a> CallResponsesArgs<'a> {
-    pub fn new(model: &'a str, api_key: &'a str, messages: Vec<ChatMessage>) -> Self {
+    pub fn new(model: &'a str, model_reply: &'a str, api_key: &'a str, messages: Vec<ChatMessage>) -> Self {
         Self {
             model,
+            model_reply,
             api_key,
             messages,
             temperature: None,
@@ -67,11 +69,13 @@ fn extract_output_text(v: &Value, out: &mut String) {
 }
 
 /// OpenAI Responses API 呼び出し（JSONをValueで受けて安全抽出）
-pub async fn call_responses(client: &Client, args: CallResponsesArgs<'_>) -> Result<ResponsesResult> {
+pub async fn call_responses(client: &Client, args: CallResponsesArgs<'_>, is_reply: bool) -> Result<ResponsesResult> {
     let (instructions, input) = split_messages_for_responses(args.messages);
 
+    let model = if is_reply { args.model_reply.to_string() } else { args.model.to_string() };
+
     let req_body = ResponsesRequest {
-        model: args.model.to_string(),
+        model,
         input,
         instructions,
         temperature: args.temperature,

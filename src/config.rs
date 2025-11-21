@@ -1,13 +1,20 @@
 use anyhow::{Context, Result, anyhow, bail};
 use std::fmt::Display;
 use std::{env, str::FromStr, time::Duration};
+use serde::Deserialize;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Deserialize)]
 pub struct BotConfig {
     // --- 必須 ---
     pub mastodon_base: String, // 例: https://mastodon.social
     pub mastodon_access_token: String,
+
+    /// 自由トゥート用（FTモデル想定）
     pub openai_model: String,
+    /// リプライ用（ベースモデル）
+    #[serde(default = "default_reply_model")]
+    pub openai_reply_model: String,
+
     pub openai_api_key: String,
 
     // --- 任意（デフォルトあり）---
@@ -28,7 +35,13 @@ pub struct BotConfig {
     pub enable_web_search: bool,
 }
 
-#[derive(Clone, Copy, Debug)]
+fn default_reply_model() -> String {
+    // 互換性のため、未設定なら OPENAI_MODEL を流用しても良いし、
+    // gpt-4.1-mini 固定でもOK
+    "gpt-4.1-mini".to_string()
+}
+
+#[derive(Clone, Copy, Debug, Deserialize)]
 pub enum Visibility {
     Public,
     Unlisted,
@@ -71,6 +84,7 @@ impl BotConfig {
         let mastodon_base = must("MASTODON_BASE_URL")?;
         let mastodon_token = must("MASTODON_ACCESS_TOKEN")?;
         let openai_model = must("OPENAI_MODEL")?;
+        let openai_reply_model = opt("OPENAI_REPLY_MODEL").unwrap_or_else(|| default_reply_model());
         let openai_api_key = must("OPENAI_API_KEY")?;
 
         // 任意
@@ -98,6 +112,7 @@ impl BotConfig {
             mastodon_base,
             mastodon_access_token: mastodon_token,
             openai_model,
+            openai_reply_model,
             openai_api_key,
             streaming_base_url,
             prompts_path,
