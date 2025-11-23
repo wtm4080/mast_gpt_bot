@@ -89,7 +89,7 @@ impl BotConfig {
 
         // 任意
         let streaming_base_url =
-            opt("#MASTODON_STREAMING_URL").unwrap_or_else(|| default_streaming_ws(&mastodon_base));
+            opt("MASTODON_STREAMING_URL").unwrap_or_else(|| default_streaming_ws(&mastodon_base));
         let prompts_path = opt("PROMPTS_PATH").unwrap_or_else(|| "config/prompts.json".into());
         let bot_db_path = opt("BOT_DB_PATH").unwrap_or_else(|| "bot_state.sqlite".into());
 
