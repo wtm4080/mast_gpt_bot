@@ -1,17 +1,18 @@
 # mast_gpt_bot
 
 Mastodon のメンションに反応して返信＆フリートゥートを投げる、Rust 製の GPT ボット。
-OpenAI Responses API を使い、必要なら Web 検索で最新情報も拾える。  
+OpenAI Responses API（Responses v2）を使い、必要なら Web 検索で最新情報も拾える。
 Docker / Compose でも動かせるし、ローカルの `cargo run` でもOK。
 
 ---
 
 ## ✨ Features
 
-- Mastodon でメンションを受けると自動返信
+- Mastodon でメンションを受けると自動返信（会話スレッド単位で OpenAI の previous_response_id を継続保存）
 - 定期の「自由トゥート（free toot）」生成
-- OpenAI Responses API ベースの会話生成
-- **Web 検索ツール**で最新情報を参照
+- OpenAI Responses API ベースの会話生成（返信用と FT 用でモデルを分離可）
+- **Web 検索ツール**で最新情報を参照（強制検索のキーワード判定もあり）
+- Mastodon 側の会話ログをブートストラップとして渡す＆SQLite でスレッド情報を保持
 - プロンプトを `config/prompts.json` で管理
 - Docker / Docker Compose 対応
 - `cargo fmt` / `clippy` による整形・静的解析
@@ -24,25 +25,36 @@ Docker / Compose でも動かせるし、ローカルの `cargo run` でもOK。
 mast_gpt_bot/
 ├─ Cargo.toml
 ├─ Cargo.lock
-├─ .env.example
+├─ .env.example                 # 環境変数サンプル
 ├─ Dockerfile
 ├─ docker-compose.yml
 ├─ config/
-│  ├─ prompts.json           # システム/ユーザー向けテンプレ群（Vec<ChatMessage>）
-│  └─ ...                    # 必要に応じて増える
+│  └─ prompts.json              # システム/ユーザー向けテンプレ群（Vec<ChatMessage>）
 └─ src/
-   ├─ main.rs
-   ├─ config.rs              # BotConfig（ENVローディング）
-   ├─ mastodon_api/
-   │  └─ post.rs             # 投稿ユーティリティ（configを1回だけ渡す）
-   ├─ notification_stream/
-   │  └─ mod.rs              # Streaming API リスナー
-   └─ openai_api/
-      ├─ mod.rs
-      ├─ stream.rs           # Responses API 呼び出し
-      ├─ types.rs            # リクエスト/レスポンス型 & tools（web_search_preview）
-      ├─ free_toot.rs        # 自由トゥート生成（JST時刻をsystemで注入）
-      └─ reply.rs            # メンション返信生成（JST時刻をsystemで注入）
+   ├─ main.rs                   # 起動：通知ストリーム＋定期 free toot
+   ├─ config/                   # BotConfig / .env ローディング
+   │  ├─ bot_config.rs
+   │  ├─ env_parsing.rs
+   │  ├─ redacted.rs
+   │  └─ visibility.rs
+   ├─ conversation_store.rs     # SQLite でスレッド毎の previous_response_id を保存
+   ├─ mastodon.rs               # Mastodon API 型＋投稿ユーティリティ
+   ├─ notification_stream/      # Streaming API リスナー
+   │  ├─ connection.rs
+   │  ├─ context.rs
+   │  ├─ handler.rs
+   │  └─ rate_limit.rs
+   ├─ openai_api/
+   │  ├─ free_toot.rs           # 自由トゥート生成（JST時刻を system で注入）
+   │  ├─ prompts.rs             # prompts.json のローディング
+   │  ├─ reply/                 # メンション返信生成
+   │  │  ├─ message_builder.rs
+   │  │  ├─ parrot_check.rs
+   │  │  ├─ search.rs
+   │  │  └─ time.rs
+   │  ├─ stream.rs              # Responses API 呼び出し
+   │  └─ types.rs               # リクエスト/レスポンス型 & tools（web_search_preview）
+   └─ util.rs                   # HTML 除去、URL 正規化、文字数トリム
 ```
 
 ---
@@ -77,20 +89,29 @@ cp .env.example .env
 主な項目：
 
 ```
-# OpenAI
-OPENAI_API_KEY=sk-xxxx
-OPENAI_MODEL=gpt-4o-mini
-
 # Mastodon
 MASTODON_BASE_URL=https://your.instance.example
 MASTODON_ACCESS_TOKEN=xxxxxx
+MASTODON_POST_VISIBILITY=unlisted   # 公開範囲 (public/unlisted/private/direct)
+MASTODON_CHAR_LIMIT=500             # インスタンスの文字数上限
 
-# Streaming（通常は /api/v1/streaming でOK）
+# OpenAI (Responses API)
+OPENAI_API_KEY=sk-xxxx
+OPENAI_MODEL=gpt-4.1-mini            # free toot 用などベースモデル
+OPENAI_REPLY_MODEL=gpt-4.1-mini      # 返信用モデル（省略時は上記デフォルト）
+
+# Prompts / 状態ファイル
+PROMPTS_PATH=config/prompts.json     # プロンプトの場所
+BOT_DB_PATH=bot_state.sqlite         # previous_response_id を保存する SQLite
+
+# 動作チューニング
+REPLY_TEMPERATURE=0.6
+FREE_TOOT_TEMPERATURE=0.7
+FREE_TOOT_INTERVAL_SECS=3600         # 自由トゥート間隔（秒）
+REPLY_MIN_INTERVAL_MS=1000           # リプライ時の最小待機（ミリ秒）
+
+# Streaming（通常は /api/v1/streaming 推測で OK）
 # MASTODON_STREAMING_URL=wss://your.instance.example/api/v1/streaming
-
-# Bot behavior
-REPLY_MIN_INTERVAL_MS=3000
-FREE_TOOT_INTERVAL_MIN=60
 
 # Tools (optional)
 ENABLE_WEB_SEARCH=true
