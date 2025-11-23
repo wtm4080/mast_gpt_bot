@@ -74,11 +74,14 @@ pub async fn call_responses(client: &Client, args: CallResponsesArgs<'_>, is_rep
 
     let model = if is_reply { args.model_reply.to_string() } else { args.model.to_string() };
 
+    let temperature =
+        if model.contains("gpt-5") { None } else { args.temperature };
+
     let req_body = ResponsesRequest {
         model,
         input,
         instructions,
-        temperature: args.temperature,
+        temperature,
         max_output_tokens: args.max_output_tokens,
         previous_response_id: args.previous_response_id,
         tools: args.tools,
