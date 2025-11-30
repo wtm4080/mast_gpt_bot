@@ -1,5 +1,5 @@
 # ===== ビルド用ステージ =====
-FROM rust:1.82-bullseye AS builder
+FROM rust:1.91.1-bullseye AS builder
 
 WORKDIR /usr/src/app
 
