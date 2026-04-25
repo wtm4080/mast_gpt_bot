@@ -1,202 +1,197 @@
 # mast_gpt_bot
 
-Mastodon のメンションに反応して返信＆フリートゥートを投げる、Rust 製の GPT ボット。
-OpenAI Responses API（Responses v2）を使い、必要なら Web 検索で最新情報も拾える。
-Docker / Compose でも動かせるし、ローカルの `cargo run` でもOK。
+Mastodon の通知ストリームでメンションを受け取り、OpenAI Responses API で返信する Rust 製 bot です。一定間隔で通常投稿も生成します。
 
----
+返信では Mastodon 側の会話コンテキストと OpenAI の `previous_response_id` を使い、スレッドごとの会話状態を SQLite に保存します。必要に応じて OpenAI の `web_search_preview` ツールも利用できます。
 
-## ✨ Features
+## 主な機能
 
-- Mastodon でメンションを受けると自動返信（会話スレッド単位で OpenAI の previous_response_id を継続保存）
-- 定期の「自由トゥート（free toot）」生成
-- OpenAI Responses API ベースの会話生成（返信用と FT 用でモデルを分離可）
-- **Web 検索ツール**で最新情報を参照（強制検索のキーワード判定もあり）
-- Mastodon 側の会話ログをブートストラップとして渡す＆SQLite でスレッド情報を保持
-- プロンプトを `config/prompts.json` で管理
-- Docker / Docker Compose 対応
-- `cargo fmt` / `clippy` による整形・静的解析
+- Mastodon Streaming API の user ストリームに接続し、`mention` 通知だけを処理
+- bot アカウントからのメンションを無視して返信ループを抑制
+- 初回返信時に Mastodon の status context を取得し、スレッド文脈として OpenAI に渡す
+- 2回目以降は SQLite に保存した `previous_response_id` を使って会話を継続
+- 時間帯に応じた自由トゥートを定期生成
+- `config/prompts.json` で返信用・自由トゥート用プロンプトを管理
+- OpenAI Responses API の `web_search_preview` に対応
+- ローカル実行、Docker、Docker Compose に対応
 
----
+## 構成
 
-## 📦 Repo structure
-
-```
-mast_gpt_bot/
-├─ Cargo.toml
-├─ Cargo.lock
-├─ .env.example                 # 環境変数サンプル
-├─ Dockerfile
-├─ docker-compose.yml
-├─ config/
-│  └─ prompts.json              # システム/ユーザー向けテンプレ群（Vec<ChatMessage>）
-└─ src/
-   ├─ main.rs                   # 起動：通知ストリーム＋定期 free toot
-   ├─ config/                   # BotConfig / .env ローディング
-   │  ├─ bot_config.rs
-   │  ├─ env_parsing.rs
-   │  ├─ redacted.rs
-   │  └─ visibility.rs
-   ├─ conversation_store.rs     # SQLite でスレッド毎の previous_response_id を保存
-   ├─ mastodon.rs               # Mastodon API 型＋投稿ユーティリティ
-   ├─ notification_stream/      # Streaming API リスナー
-   │  ├─ connection.rs
-   │  ├─ context.rs
-   │  ├─ handler.rs
-   │  └─ rate_limit.rs
-   ├─ openai_api/
-   │  ├─ free_toot.rs           # 自由トゥート生成（JST時刻を system で注入）
-   │  ├─ prompts.rs             # prompts.json のローディング
-   │  ├─ reply/                 # メンション返信生成
-   │  │  ├─ message_builder.rs
-   │  │  ├─ parrot_check.rs
-   │  │  ├─ search.rs
-   │  │  └─ time.rs
-   │  ├─ stream.rs              # Responses API 呼び出し
-   │  └─ types.rs               # リクエスト/レスポンス型 & tools（web_search_preview）
-   └─ util.rs                   # HTML 除去、URL 正規化、文字数トリム
+```text
+.
+├── Cargo.toml
+├── Cargo.lock
+├── Dockerfile
+├── docker-compose.yml
+├── .env.example
+├── config/
+│   └── prompts.json
+└── src/
+    ├── main.rs
+    ├── config/
+    ├── conversation_store.rs
+    ├── mastodon.rs
+    ├── notification_stream/
+    ├── openai_api/
+    └── util.rs
 ```
 
----
+主要な役割は次の通りです。
 
-## 🔧 Requirements
+- `src/main.rs`: 設定読み込み、通知ストリーム処理、自由トゥート処理を起動
+- `src/config/`: `.env` から `BotConfig` を生成
+- `src/notification_stream/`: WebSocket 接続、通知イベント処理、返信レート制御
+- `src/openai_api/`: Responses API 呼び出し、返信生成、自由トゥート生成、プロンプト読み込み
+- `src/conversation_store.rs`: SQLite にスレッドごとの `last_response_id` を保存
+- `src/mastodon.rs`: Mastodon API の context 取得、返信投稿、通常投稿
+- `src/util.rs`: HTML 除去、URL/Markdownリンク正規化、文字数調整
 
-- Rust stable（1.75+ 推奨）
-- `rustup`（`rustfmt`, `clippy` コンポーネント）
-- Docker / Docker Compose（任意）
-- Mastodon アカウント & アプリトークン
-- OpenAI API Key（Responses API）
+## 必要なもの
 
----
+- Rust stable
+- Mastodon アカウントとアクセストークン
+- OpenAI API key
+- Docker / Docker Compose 任意
 
-## 🚀 Setup
+`rust-toolchain.toml` で `rustfmt` と `clippy` コンポーネントを指定しています。
 
-### 1) Clone
+## セットアップ
 
-```bash
-git clone https://github.com/wtm4080/mast_gpt_bot.git
-cd mast_gpt_bot
-```
-
-### 2) Create `.env`
-
-`.env.example` をコピーして `.env` を作る：
+`.env.example` をコピーして `.env` を作成します。
 
 ```bash
 cp .env.example .env
 ```
 
-主な項目：
+最低限、次の値を設定してください。
 
-```
-# Mastodon
+```dotenv
 MASTODON_BASE_URL=https://your.instance.example
-MASTODON_ACCESS_TOKEN=xxxxxx
-MASTODON_POST_VISIBILITY=unlisted   # 公開範囲 (public/unlisted/private/direct)
-MASTODON_CHAR_LIMIT=500             # インスタンスの文字数上限
+MASTODON_ACCESS_TOKEN=xxxxxxxxxxxxxxxxxxxx
 
-# OpenAI (Responses API)
-OPENAI_API_KEY=sk-xxxx
-OPENAI_MODEL=gpt-4.1-mini            # free toot 用などベースモデル
-OPENAI_REPLY_MODEL=gpt-4.1-mini      # 返信用モデル（省略時は上記デフォルト）
-
-# Prompts / 状態ファイル
-PROMPTS_PATH=config/prompts.json     # プロンプトの場所
-BOT_DB_PATH=bot_state.sqlite         # previous_response_id を保存する SQLite
-
-# 動作チューニング
-REPLY_TEMPERATURE=0.6
-FREE_TOOT_TEMPERATURE=0.7
-FREE_TOOT_INTERVAL_SECS=3600         # 自由トゥート間隔（秒）
-REPLY_MIN_INTERVAL_MS=1000           # リプライ時の最小待機（ミリ秒）
-
-# Streaming（通常は /api/v1/streaming 推測で OK）
-# MASTODON_STREAMING_URL=wss://your.instance.example/api/v1/streaming
-
-# Tools (optional)
-ENABLE_WEB_SEARCH=true
+OPENAI_API_KEY=sk-xxxxxxxxxxxxxxxxxxxx
+OPENAI_MODEL=gpt-4.1-mini
+OPENAI_REPLY_MODEL=gpt-4.1-mini
+PROMPTS_PATH=config/prompts.json
 ```
 
-> Streaming URL はインスタンスによって `/api/v1/streaming` が必要なことがある。エラー時はここを要チェック。
+`PROMPTS_PATH` は `.env.example` と同じく `config/prompts.json` を指定しておくのがおすすめです。現在のプロンプトローダーは環境変数 `PROMPTS_PATH` を直接参照します。
 
----
+## 環境変数
 
-## ▶️ Run (Local)
+| 変数 | 必須 | 既定値 | 内容 |
+| --- | --- | --- | --- |
+| `MASTODON_BASE_URL` | yes | なし | Mastodon インスタンスの URL |
+| `MASTODON_ACCESS_TOKEN` | yes | なし | Mastodon API トークン |
+| `OPENAI_API_KEY` | yes | なし | OpenAI API key |
+| `OPENAI_MODEL` | yes | なし | 自由トゥート生成に使うモデル |
+| `OPENAI_REPLY_MODEL` | no | `gpt-4.1-mini` | 返信生成に使うモデル |
+| `PROMPTS_PATH` | no | 明示設定推奨 | プロンプト JSON のパス |
+| `BOT_DB_PATH` | no | `bot_state.sqlite` | 会話状態を保存する SQLite ファイル |
+| `MASTODON_STREAMING_URL` | no | `MASTODON_BASE_URL` から推測 | Streaming API の WebSocket URL |
+| `MASTODON_POST_VISIBILITY` | no | `unlisted` | 自由トゥートの公開範囲 |
+| `MASTODON_CHAR_LIMIT` | no | `500` | 自由トゥートの文字数上限 |
+| `FREE_TOOT_INTERVAL_SECS` | no | `3600` | 自由トゥート間隔 |
+| `REPLY_MIN_INTERVAL_MS` | no | `3000` | 返信処理前の最小待機時間 |
+| `REPLY_TEMPERATURE` | no | `0.7` | 返信生成の temperature |
+| `FREE_TOOT_TEMPERATURE` | no | `0.8` | 自由トゥート生成の temperature |
+| `ENABLE_WEB_SEARCH` | no | `false` | `web_search_preview` を有効化 |
+
+`MASTODON_STREAMING_URL` を省略すると、`https://example.com` は `wss://example.com/api/v1/streaming` に、`http://example.com` は `ws://example.com/api/v1/streaming` に変換されます。
+
+`MASTODON_POST_VISIBILITY` は `public`、`unlisted`、`private`、`direct` が利用できます。返信投稿では元投稿の visibility を引き継ぎ、自由トゥートではこの設定を使います。
+
+## プロンプト
+
+`config/prompts.json` は次のキーを持つ JSON です。各値は OpenAI に渡す `role` / `content` 形式のメッセージ配列です。
+
+- `free_toot_morning`
+- `free_toot_day`
+- `free_toot_night`
+- `reply_with_context`
+- `reply_without_context`
+
+自由トゥートでは JST の現在時刻から朝・昼・夕方・夜を判定します。夕方は `free_toot_day` を流用します。実行時には JST 現在時刻を system instruction として追加します。
+
+返信プロンプトでは、テンプレート内に `{{USER_TEXT}}` と `{{CONTEXT}}` を置くと実際のメンション本文と会話コンテキストに置換されます。プレースホルダーがない場合は、コード側で user メッセージや context を追加します。
+
+## 実行
+
+ローカルで実行する場合:
 
 ```bash
 cargo run
 ```
 
----
-
-## 🐳 Run (Docker)
-
-### Build
+Docker で実行する場合:
 
 ```bash
 docker build -t mast-gpt-bot:latest .
+docker run --rm --env-file .env mast-gpt-bot:latest
 ```
 
-### Run (single container)
-
-```bash
-docker run --rm   --env-file .env   mast-gpt-bot:latest
-```
-
-### Run (Compose)
+Docker Compose で実行する場合:
 
 ```bash
 docker compose up --build
 ```
 
----
+Compose では外部公開ポートは設定していません。bot は Mastodon と OpenAI に outbound 接続します。
 
-## 🧠 Prompts
+## 動作の流れ
 
-`config/prompts.json` に、以下のセクションがある想定：
+1. `.env` から設定を読み込みます。
+2. SQLite DB を開き、`conversations` テーブルを初期化します。
+3. Mastodon Streaming API に `stream=user` で接続します。
+4. `notification` イベントのうち `type == "mention"` のみ処理します。
+5. Mastodon の status context を取得し、スレッドルート ID を `thread_key` にします。
+6. SQLite から `previous_response_id` を取得します。
+7. OpenAI Responses API で返信を生成します。
+8. Mastodon に返信を投稿し、最新の response id を SQLite に保存します。
+9. 別タスクで `FREE_TOOT_INTERVAL_SECS` ごとに自由トゥートを生成・投稿します。
 
-- `free_toot_morning` / `free_toot_day` / `free_toot_night` … 自由トゥート用テンプレ（Vec<ChatMessage>）
-- `reply_with_context` / `reply_without_context` … 返信テンプレ（Vec<ChatMessage>）
+WebSocket 接続が切れた場合は 5 秒後に再接続します。
 
-アプリ側はこの **テンプレ Vec<ChatMessage>** を読み、必要に応じて **JST 現在時刻** を `system` メッセージとして追記する。
+## Web 検索
 
----
+`ENABLE_WEB_SEARCH=true` の場合、返信生成と自由トゥート生成で OpenAI の `web_search_preview` ツールを渡します。
 
-## 🔍 Web Search (Preview)
+また、返信本文にリリースノート、変更点、バージョン番号などの語が含まれる場合は、`ENABLE_WEB_SEARCH` が `false` でも検索ツールを強制的に有効化します。この場合は短い箇条書きと出典ドメインを返すよう追加指示を入れます。
 
-- OpenAI Responses API の **Hosted Tool (web_search_preview)** を有効にすると、モデルが必要判断で検索→引用付き回答できる
-- ON/OFF は `.env` の `ENABLE_WEB_SEARCH=true/false` で切替（コード側で tools を渡す）
+## 開発
 
----
-
-## 🧹 Formatting & Lint
+整形:
 
 ```bash
-# 全クレート整形
 cargo fmt --all
+```
 
-# チェックのみ（失敗時に非0）
+整形チェック:
+
+```bash
 cargo fmt --all -- --check
+```
 
-# Lint
+テスト:
+
+```bash
+cargo test
+```
+
+Lint:
+
+```bash
 cargo clippy -- -D warnings
 ```
 
-ルートに `rustfmt.toml` を置けば、全体でスタイル共有ができる。
+## 運用メモ
 
----
+- SQLite は `BOT_DB_PATH` に作成され、WAL モードで利用されます。
+- `bot_state.sqlite*` は実行時状態なので、通常はリポジトリに含めない運用が安全です。
+- `.env` には API key やアクセストークンが入るため公開しないでください。
+- インスタンスによって Streaming API の URL が異なる場合は `MASTODON_STREAMING_URL` を明示してください。
+- OpenAI API の失敗や Mastodon 投稿失敗はログに出力されます。
 
-## 🧪 Troubleshooting
+## ライセンス
 
-**Streaming が受け取れない**
-- `MASTODON_STREAMING_URL` を `wss://<host>/api/v1/streaming` に修正（インスタンス依存）
-
-**返答が古い**
-- `.env` の `ENABLE_WEB_SEARCH=true` にして、Web 検索ツールを利用するようにする
-
----
-
-## 📜 License
-
-This project is licensed under the **MIT License**.  
-See [LICENSE](./LICENSE) for details.
+MIT License です。詳細は [LICENSE](LICENSE) を参照してください。
