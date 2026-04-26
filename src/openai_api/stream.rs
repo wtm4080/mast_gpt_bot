@@ -4,6 +4,8 @@ use serde_json::Value;
 
 use crate::openai_api::types::{ChatMessage, ResponsesRequest, ResponsesResult, Tool};
 
+const RESPONSES_API_URL: &str = "https://api.openai.com/v1/responses";
+
 /// `call_responses` に渡す引数まとめ
 pub struct CallResponsesArgs<'a> {
     pub model: &'a str,
@@ -87,6 +89,24 @@ pub async fn call_responses(
     args: CallResponsesArgs<'_>,
     is_reply: bool,
 ) -> Result<ResponsesResult> {
+    let (api_key, req_body) = build_responses_request(args, is_reply);
+
+    let resp = client.post(RESPONSES_API_URL).bearer_auth(api_key).json(&req_body).send().await?;
+
+    let status_code = resp.status();
+    let raw = resp.text().await?;
+
+    if !status_code.is_success() {
+        return Err(anyhow!("OpenAI error {}: {}", status_code, raw));
+    }
+
+    parse_responses_result(&raw)
+}
+
+fn build_responses_request(
+    args: CallResponsesArgs<'_>,
+    is_reply: bool,
+) -> (&str, ResponsesRequest) {
     let (instructions, input) = split_messages_for_responses(args.messages);
 
     let model = if is_reply { args.model_reply.to_string() } else { args.model.to_string() };
@@ -103,21 +123,11 @@ pub async fn call_responses(
         tools: args.tools,
     };
 
-    let resp = client
-        .post("https://api.openai.com/v1/responses")
-        .bearer_auth(args.api_key)
-        .json(&req_body)
-        .send()
-        .await?;
+    (args.api_key, req_body)
+}
 
-    let status_code = resp.status();
-    let raw = resp.text().await?;
-
-    if !status_code.is_success() {
-        return Err(anyhow!("OpenAI error {}: {}", status_code, raw));
-    }
-
-    let v: Value = serde_json::from_str(&raw)
+fn parse_responses_result(raw: &str) -> Result<ResponsesResult> {
+    let v: Value = serde_json::from_str(raw)
         .map_err(|e| anyhow!("error decoding response body: {}\nraw: {}", e, raw))?;
 
     let id = v.get("id").and_then(|x| x.as_str()).unwrap_or_default().to_string();
@@ -163,6 +173,10 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    fn message(role: &str, content: &str) -> ChatMessage {
+        ChatMessage { role: role.to_string(), content: content.to_string() }
+    }
+
     #[test]
     fn extract_single_output_text() {
         let v = json!({
@@ -195,5 +209,64 @@ mod tests {
         let mut out = String::new();
         extract_output_text(&v, &mut out);
         assert!(out.is_empty());
+    }
+
+    #[test]
+    fn split_messages_moves_system_chunks_to_instructions() {
+        let messages = vec![
+            message("system", "first instruction"),
+            message("user", "hello"),
+            message("system", "second instruction"),
+            message("assistant", "hi"),
+        ];
+
+        let (instructions, input) = split_messages_for_responses(messages);
+
+        assert_eq!(instructions.as_deref(), Some("first instruction\n\nsecond instruction"));
+        assert_eq!(input.len(), 2);
+        assert_eq!(input[0].role, "user");
+        assert_eq!(input[0].content, "hello");
+        assert_eq!(input[1].role, "assistant");
+        assert_eq!(input[1].content, "hi");
+    }
+
+    #[test]
+    fn build_responses_request_selects_reply_model_and_omits_gpt5_temperature() {
+        let args = CallResponsesArgs::new(
+            "gpt-4.1",
+            "gpt-5-test",
+            "api-key",
+            vec![message("system", "be concise"), message("user", "hello")],
+        )
+        .temperature(0.7)
+        .max_output_tokens(140)
+        .previous_response_id("resp_prev");
+
+        let (api_key, req) = build_responses_request(args, true);
+
+        assert_eq!(api_key, "api-key");
+        assert_eq!(req.model, "gpt-5-test");
+        assert_eq!(req.instructions.as_deref(), Some("be concise"));
+        assert_eq!(req.input.len(), 1);
+        assert_eq!(req.temperature, None);
+        assert_eq!(req.max_output_tokens, Some(140));
+        assert_eq!(req.previous_response_id.as_deref(), Some("resp_prev"));
+    }
+
+    #[test]
+    fn parse_responses_result_extracts_id_status_and_text() {
+        let raw = r#"{
+            "id": "resp_1",
+            "status": "completed",
+            "output": [
+                {"content": [{"type": "output_text", "text": "hello"}]}
+            ]
+        }"#;
+
+        let result = parse_responses_result(raw).unwrap();
+
+        assert_eq!(result.id, "resp_1");
+        assert_eq!(result.status.as_deref(), Some("completed"));
+        assert_eq!(result.text, "hello");
     }
 }

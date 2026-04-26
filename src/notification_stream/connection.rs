@@ -65,14 +65,36 @@ async fn connect_stream(
     impl futures_util::Stream<Item = Result<Message, tokio_tungstenite::tungstenite::Error>>,
     Url,
 )> {
-    let mut url = Url::parse(streaming_base_url).context("Failed to parse streaming base URL")?;
-
-    // 認証付きで user ストリームに接続
-    url.set_query(Some(&format!("stream=user&access_token={}", token)));
+    let url = streaming_user_url(streaming_base_url, token)?;
 
     let (ws_stream, _resp) =
         connect_async(url.as_str()).await.context("Failed to connect WebSocket")?;
 
     let (_write, read) = ws_stream.split();
     Ok((read, url))
+}
+
+fn streaming_user_url(streaming_base_url: &str, token: &str) -> Result<Url> {
+    let mut url = Url::parse(streaming_base_url).context("Failed to parse streaming base URL")?;
+
+    // 認証付きで user ストリームに接続
+    url.set_query(Some(&format!("stream=user&access_token={}", token)));
+
+    Ok(url)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn streaming_user_url_adds_user_stream_and_access_token_query() {
+        let url = streaming_user_url("wss://mastodon.example/api/v1/streaming", "mastodon-token")
+            .unwrap();
+
+        assert_eq!(
+            url.as_str(),
+            "wss://mastodon.example/api/v1/streaming?stream=user&access_token=mastodon-token"
+        );
+    }
 }
