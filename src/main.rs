@@ -3,6 +3,8 @@ mod conversation_store;
 mod mastodon;
 mod notification_stream;
 mod openai_api;
+#[cfg(test)]
+mod test_support;
 mod util;
 
 use crate::conversation_store::ConversationStore;
