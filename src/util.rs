@@ -1,6 +1,13 @@
 //! strip_html とか小物ユーティリティ
 
+use once_cell::sync::Lazy;
 use regex::Regex;
+
+static MARKDOWN_LINK_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"\[([^]]+)]\((https?://[^\s)]+)\)").unwrap());
+static URL_DOMAIN_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"^https?://([^/\s?]+)").unwrap());
+static RAW_URL_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"https?://[^\s)]+").unwrap());
+static WHITESPACE_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"\s+").unwrap());
 
 /// Mastodon status.content (HTML) をざっくりプレーンテキストに
 pub fn strip_html(input: &str) -> String {
@@ -30,31 +37,34 @@ pub fn strip_html(input: &str) -> String {
 /// - ラベルにURLが重複してもドメインだけ残す
 pub fn normalize_links_to_domains(input: &str) -> String {
     // 1) Markdownリンク → (domain)
-    let re_md = Regex::new(r"\[([^]]+)]\((https?://[^\s)]+)\)").unwrap();
-    let dom = Regex::new(r"^https?://([^/\s?]+)").unwrap();
-    let s = re_md
+    let s = MARKDOWN_LINK_RE
         .replace_all(input, |caps: &regex::Captures| {
             let url = caps.get(2).map(|m| m.as_str()).unwrap_or("");
-            let domain =
-                dom.captures(url).and_then(|c| c.get(1)).map(|m| m.as_str()).unwrap_or("source");
+            let domain = URL_DOMAIN_RE
+                .captures(url)
+                .and_then(|c| c.get(1))
+                .map(|m| m.as_str())
+                .unwrap_or("source");
             format!("({})", domain)
         })
         .into_owned();
 
     // 2) 生URL → (domain)
-    let re_url = Regex::new(r"https?://[^\s)]+").unwrap();
-    let s = re_url
+    let s = RAW_URL_RE
         .replace_all(&s, |caps: &regex::Captures| {
             let url = caps.get(0).map(|m| m.as_str()).unwrap_or("");
-            let domain =
-                dom.captures(url).and_then(|c| c.get(1)).map(|m| m.as_str()).unwrap_or("source");
+            let domain = URL_DOMAIN_RE
+                .captures(url)
+                .and_then(|c| c.get(1))
+                .map(|m| m.as_str())
+                .unwrap_or("source");
             format!("({})", domain)
         })
         .into_owned();
 
     // 3) 余計な二重括弧や空白を軽く整理
     let s = s.replace("（", "(").replace("）", ")"); // 全角→半角
-    let s = Regex::new(r"\s+").unwrap().replace_all(&s, " "); // 複数空白→1つ
+    let s = WHITESPACE_RE.replace_all(&s, " "); // 複数空白→1つ
     s.trim().to_string()
 }
 
