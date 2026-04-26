@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use reqwest::Client;
 use serde_json::Value;
 
@@ -17,7 +17,12 @@ pub struct CallResponsesArgs<'a> {
 }
 
 impl<'a> CallResponsesArgs<'a> {
-    pub fn new(model: &'a str, model_reply: &'a str, api_key: &'a str, messages: Vec<ChatMessage>) -> Self {
+    pub fn new(
+        model: &'a str,
+        model_reply: &'a str,
+        api_key: &'a str,
+        messages: Vec<ChatMessage>,
+    ) -> Self {
         Self {
             model,
             model_reply,
@@ -29,13 +34,21 @@ impl<'a> CallResponsesArgs<'a> {
             tools: None,
         }
     }
-    pub fn temperature(mut self, t: f32) -> Self { self.temperature = Some(t); self }
-    pub fn max_output_tokens(mut self, n: u32) -> Self { self.max_output_tokens = Some(n); self }
+    pub fn temperature(mut self, t: f32) -> Self {
+        self.temperature = Some(t);
+        self
+    }
+    pub fn max_output_tokens(mut self, n: u32) -> Self {
+        self.max_output_tokens = Some(n);
+        self
+    }
     pub fn previous_response_id<S: Into<String>>(mut self, id: S) -> Self {
-        self.previous_response_id = Some(id.into()); self
+        self.previous_response_id = Some(id.into());
+        self
     }
     pub fn tools(mut self, tools: Vec<Tool>) -> Self {
-        self.tools = if tools.is_empty() { None } else { Some(tools) }; self
+        self.tools = if tools.is_empty() { None } else { Some(tools) };
+        self
     }
 }
 
@@ -69,13 +82,16 @@ fn extract_output_text(v: &Value, out: &mut String) {
 }
 
 /// OpenAI Responses API 呼び出し（JSONをValueで受けて安全抽出）
-pub async fn call_responses(client: &Client, args: CallResponsesArgs<'_>, is_reply: bool) -> Result<ResponsesResult> {
+pub async fn call_responses(
+    client: &Client,
+    args: CallResponsesArgs<'_>,
+    is_reply: bool,
+) -> Result<ResponsesResult> {
     let (instructions, input) = split_messages_for_responses(args.messages);
 
     let model = if is_reply { args.model_reply.to_string() } else { args.model.to_string() };
 
-    let temperature =
-        if model.contains("gpt-5") { None } else { args.temperature };
+    let temperature = if model.contains("gpt-5") { None } else { args.temperature };
 
     let req_body = ResponsesRequest {
         model,
@@ -119,9 +135,7 @@ pub async fn call_responses(client: &Client, args: CallResponsesArgs<'_>, is_rep
     Ok(ResponsesResult { id, text, status: Some(status) })
 }
 
-fn split_messages_for_responses(
-    messages: Vec<ChatMessage>,
-) -> (Option<String>, Vec<ChatMessage>) {
+fn split_messages_for_responses(messages: Vec<ChatMessage>) -> (Option<String>, Vec<ChatMessage>) {
     let mut system_chunks = Vec::new();
     let mut input_messages = Vec::new();
 

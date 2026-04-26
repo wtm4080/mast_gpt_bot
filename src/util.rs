@@ -35,11 +35,8 @@ pub fn normalize_links_to_domains(input: &str) -> String {
     let s = re_md
         .replace_all(input, |caps: &regex::Captures| {
             let url = caps.get(2).map(|m| m.as_str()).unwrap_or("");
-            let domain = dom
-                .captures(url)
-                .and_then(|c| c.get(1))
-                .map(|m| m.as_str())
-                .unwrap_or("source");
+            let domain =
+                dom.captures(url).and_then(|c| c.get(1)).map(|m| m.as_str()).unwrap_or("source");
             format!("({})", domain)
         })
         .into_owned();
@@ -49,11 +46,8 @@ pub fn normalize_links_to_domains(input: &str) -> String {
     let s = re_url
         .replace_all(&s, |caps: &regex::Captures| {
             let url = caps.get(0).map(|m| m.as_str()).unwrap_or("");
-            let domain = dom
-                .captures(url)
-                .and_then(|c| c.get(1))
-                .map(|m| m.as_str())
-                .unwrap_or("source");
+            let domain =
+                dom.captures(url).and_then(|c| c.get(1)).map(|m| m.as_str()).unwrap_or("source");
             format!("({})", domain)
         })
         .into_owned();
@@ -79,11 +73,7 @@ pub fn fit_for_mastodon_plain(input: &str, limit: usize) -> String {
     let lines: Vec<&str> = s.lines().collect();
     let mut acc = String::new();
     for line in lines {
-        let tentative = if acc.is_empty() {
-            line.to_string()
-        } else {
-            format!("{acc}\n{line}")
-        };
+        let tentative = if acc.is_empty() { line.to_string() } else { format!("{acc}\n{line}") };
         if tentative.chars().count() <= limit {
             acc = tentative;
         } else {

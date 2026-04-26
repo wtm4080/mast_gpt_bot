@@ -38,7 +38,9 @@ fn resolve_prompts_path(raw: &str) -> PathBuf {
     }
 
     // 2. 実行ファイルと同じディレクトリからの相対パス
-    if let Ok(exe) = std::env::current_exe() && let Some(exe_dir) = exe.parent() {
+    if let Ok(exe) = std::env::current_exe()
+        && let Some(exe_dir) = exe.parent()
+    {
         let from_exe = exe_dir.join(p);
 
         if from_exe.exists() {

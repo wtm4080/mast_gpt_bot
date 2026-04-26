@@ -32,7 +32,7 @@ pub struct ResponsesRequest {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub previous_response_id: Option<String>,
-    
+
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tools: Option<Vec<Tool>>,
 }

@@ -5,7 +5,7 @@ use reqwest::Client;
 
 use crate::config::BotConfig;
 use crate::openai_api::prompts::PROMPTS;
-use crate::openai_api::stream::{call_responses, CallResponsesArgs};
+use crate::openai_api::stream::{CallResponsesArgs, call_responses};
 use crate::openai_api::types::{ChatMessage, Tool};
 
 /// 時間帯に応じて free_toot_*（Vec<ChatMessage>）を選ぶ

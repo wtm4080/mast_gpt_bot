@@ -2,9 +2,9 @@
 
 use crate::config::BotConfig;
 use crate::util::fit_for_mastodon_plain;
-use anyhow::{anyhow, Context, Result};
-use reqwest::header::AUTHORIZATION;
+use anyhow::{Context, Result, anyhow};
 use reqwest::Client;
+use reqwest::header::AUTHORIZATION;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
@@ -56,12 +56,7 @@ pub async fn fetch_status_context(
     status_id: &str,
 ) -> Result<StatusContext> {
     let url = format!("{}/api/v1/statuses/{}/context", base_url, status_id);
-    let resp = client
-        .get(&url)
-        .bearer_auth(access_token)
-        .send()
-        .await?
-        .error_for_status()?;
+    let resp = client.get(&url).bearer_auth(access_token).send().await?.error_for_status()?;
 
     let ctx: StatusContext = resp.json().await?;
     Ok(ctx)
