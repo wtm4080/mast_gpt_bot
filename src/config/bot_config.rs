@@ -47,7 +47,7 @@ impl BotConfig {
         let mastodon_token = env_parsing::must("MASTODON_ACCESS_TOKEN")?;
         let openai_model = env_parsing::must("OPENAI_MODEL")?;
         let openai_reply_model =
-            env_parsing::opt("OPENAI_REPLY_MODEL").unwrap_or_else(|| default_reply_model());
+            env_parsing::opt("OPENAI_REPLY_MODEL").unwrap_or_else(default_reply_model);
         let openai_api_key = env_parsing::must("OPENAI_API_KEY")?;
 
         let streaming_base_url = env_parsing::opt("MASTODON_STREAMING_URL")

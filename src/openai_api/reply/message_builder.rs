@@ -32,13 +32,10 @@ pub(super) fn build_initial_messages(
         });
     }
 
-    if let Some(ctx) = conversation_context {
-        if !had_context_placeholder {
-            msgs.push(ChatMessage {
-                role: "system".into(),
-                content: format!("[context]\n{}", ctx),
-            });
-        }
+    if let Some(ctx) = conversation_context
+        && !had_context_placeholder
+    {
+        msgs.push(ChatMessage { role: "system".into(), content: format!("[context]\n{}", ctx) });
     }
 
     if !had_user_placeholder {
@@ -68,13 +65,11 @@ pub(super) fn build_retry_messages(
         content: format!("CurrentTime(JST): {}", now_tokyo_rfc3339()),
     });
 
-    if let Some(ctx) = conversation_context {
-        if !had_context_placeholder {
-            retry_msgs.push(ChatMessage {
-                role: "system".into(),
-                content: format!("[context]\n{}", ctx),
-            });
-        }
+    if let Some(ctx) = conversation_context
+        && !had_context_placeholder
+    {
+        retry_msgs
+            .push(ChatMessage { role: "system".into(), content: format!("[context]\n{}", ctx) });
     }
     if !had_user_placeholder {
         retry_msgs.push(ChatMessage { role: "user".into(), content: user_text.to_string() });
