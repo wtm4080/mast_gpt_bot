@@ -232,4 +232,46 @@ mod tests {
 
         assert_eq!(err.to_string(), "post_status: empty after fit");
     }
+
+    #[tokio::test]
+    async fn post_status_returns_http_status_error_from_mock_server() {
+        let server =
+            crate::test_support::MockHttpServer::respond("500 Internal Server Error", "boom");
+        let client = Client::new();
+        let mut cfg = test_config();
+        cfg.mastodon_base = server.base_url().to_string();
+
+        let err = post_status(&client, &cfg, "hello").await.unwrap_err();
+
+        assert_eq!(err.to_string(), "post_status: http 500 Internal Server Error: boom");
+    }
+
+    #[tokio::test]
+    async fn fetch_status_context_surfaces_request_timeout_from_mock_server() {
+        let server = crate::test_support::MockHttpServer::respond_after(
+            std::time::Duration::from_millis(200),
+            "200 OK",
+            "{}",
+        );
+        let client =
+            Client::builder().timeout(std::time::Duration::from_millis(20)).build().unwrap();
+
+        let err = fetch_status_context(&client, server.base_url(), "token", "status-1")
+            .await
+            .unwrap_err();
+        let reqwest_err = err.downcast_ref::<reqwest::Error>().unwrap();
+
+        assert!(reqwest_err.is_timeout());
+    }
+
+    #[tokio::test]
+    async fn fetch_status_context_surfaces_connection_failure() {
+        let client = Client::new();
+        let base_url = crate::test_support::closed_local_url("");
+
+        let err = fetch_status_context(&client, &base_url, "token", "status-1").await.unwrap_err();
+        let reqwest_err = err.downcast_ref::<reqwest::Error>().unwrap();
+
+        assert!(reqwest_err.is_connect());
+    }
 }

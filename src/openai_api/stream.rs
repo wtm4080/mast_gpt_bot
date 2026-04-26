@@ -8,6 +8,7 @@ const RESPONSES_API_URL: &str = "https://api.openai.com/v1/responses";
 
 /// `call_responses` に渡す引数まとめ
 pub struct CallResponsesArgs<'a> {
+    pub api_url: &'a str,
     pub model: &'a str,
     pub model_reply: &'a str,
     pub api_key: &'a str,
@@ -26,6 +27,7 @@ impl<'a> CallResponsesArgs<'a> {
         messages: Vec<ChatMessage>,
     ) -> Self {
         Self {
+            api_url: RESPONSES_API_URL,
             model,
             model_reply,
             api_key,
@@ -35,6 +37,11 @@ impl<'a> CallResponsesArgs<'a> {
             previous_response_id: None,
             tools: None,
         }
+    }
+    #[cfg(test)]
+    pub fn api_url(mut self, url: &'a str) -> Self {
+        self.api_url = url;
+        self
     }
     pub fn temperature(mut self, t: f32) -> Self {
         self.temperature = Some(t);
@@ -89,9 +96,9 @@ pub async fn call_responses(
     args: CallResponsesArgs<'_>,
     is_reply: bool,
 ) -> Result<ResponsesResult> {
-    let (api_key, req_body) = build_responses_request(args, is_reply);
+    let (api_url, api_key, req_body) = build_responses_request(args, is_reply);
 
-    let resp = client.post(RESPONSES_API_URL).bearer_auth(api_key).json(&req_body).send().await?;
+    let resp = client.post(api_url).bearer_auth(api_key).json(&req_body).send().await?;
 
     let status_code = resp.status();
     let raw = resp.text().await?;
@@ -106,7 +113,7 @@ pub async fn call_responses(
 fn build_responses_request(
     args: CallResponsesArgs<'_>,
     is_reply: bool,
-) -> (&str, ResponsesRequest) {
+) -> (&str, &str, ResponsesRequest) {
     let (instructions, input) = split_messages_for_responses(args.messages);
 
     let model = if is_reply { args.model_reply.to_string() } else { args.model.to_string() };
@@ -123,7 +130,7 @@ fn build_responses_request(
         tools: args.tools,
     };
 
-    (args.api_key, req_body)
+    (args.api_url, args.api_key, req_body)
 }
 
 fn parse_responses_result(raw: &str) -> Result<ResponsesResult> {
@@ -242,8 +249,9 @@ mod tests {
         .max_output_tokens(140)
         .previous_response_id("resp_prev");
 
-        let (api_key, req) = build_responses_request(args, true);
+        let (api_url, api_key, req) = build_responses_request(args, true);
 
+        assert_eq!(api_url, RESPONSES_API_URL);
         assert_eq!(api_key, "api-key");
         assert_eq!(req.model, "gpt-5-test");
         assert_eq!(req.instructions.as_deref(), Some("be concise"));
@@ -268,5 +276,68 @@ mod tests {
         assert_eq!(result.id, "resp_1");
         assert_eq!(result.status.as_deref(), Some("completed"));
         assert_eq!(result.text, "hello");
+    }
+
+    #[tokio::test]
+    async fn call_responses_returns_http_status_error_from_mock_server() {
+        let server = crate::test_support::MockHttpServer::respond(
+            "500 Internal Server Error",
+            "upstream boom",
+        );
+        let client = Client::new();
+        let api_url = server.url("/v1/responses");
+        let args = CallResponsesArgs::new(
+            "gpt-test",
+            "gpt-test-reply",
+            "api-key",
+            vec![message("user", "hello")],
+        )
+        .api_url(&api_url);
+
+        let err = call_responses(&client, args, true).await.unwrap_err();
+
+        assert_eq!(err.to_string(), "OpenAI error 500 Internal Server Error: upstream boom");
+    }
+
+    #[tokio::test]
+    async fn call_responses_surfaces_request_timeout_from_mock_server() {
+        let server = crate::test_support::MockHttpServer::respond_after(
+            std::time::Duration::from_millis(200),
+            "200 OK",
+            "{}",
+        );
+        let client =
+            Client::builder().timeout(std::time::Duration::from_millis(20)).build().unwrap();
+        let api_url = server.url("/v1/responses");
+        let args = CallResponsesArgs::new(
+            "gpt-test",
+            "gpt-test-reply",
+            "api-key",
+            vec![message("user", "hello")],
+        )
+        .api_url(&api_url);
+
+        let err = call_responses(&client, args, true).await.unwrap_err();
+        let reqwest_err = err.downcast_ref::<reqwest::Error>().unwrap();
+
+        assert!(reqwest_err.is_timeout());
+    }
+
+    #[tokio::test]
+    async fn call_responses_surfaces_connection_failure() {
+        let client = Client::new();
+        let api_url = crate::test_support::closed_local_url("/v1/responses");
+        let args = CallResponsesArgs::new(
+            "gpt-test",
+            "gpt-test-reply",
+            "api-key",
+            vec![message("user", "hello")],
+        )
+        .api_url(&api_url);
+
+        let err = call_responses(&client, args, true).await.unwrap_err();
+        let reqwest_err = err.downcast_ref::<reqwest::Error>().unwrap();
+
+        assert!(reqwest_err.is_connect());
     }
 }
