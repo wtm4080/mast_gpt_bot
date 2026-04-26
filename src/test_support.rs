@@ -96,3 +96,10 @@ pub(crate) fn closed_local_url(path: &str) -> String {
     drop(listener);
     format!("http://{}{}", addr, path)
 }
+
+pub(crate) fn closed_local_ws_url(path: &str) -> String {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    drop(listener);
+    format!("ws://{}{}", addr, path)
+}

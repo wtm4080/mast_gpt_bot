@@ -98,4 +98,31 @@ mod tests {
             "wss://mastodon.example/api/v1/streaming?stream=user&access_token=mastodon-token"
         );
     }
+
+    #[tokio::test]
+    async fn connect_stream_surfaces_connection_failure() {
+        let url = crate::test_support::closed_local_ws_url("/api/v1/streaming");
+
+        let err = match connect_stream(&url, "mastodon-token").await {
+            Ok(_) => panic!("expected connect_stream to fail"),
+            Err(err) => err,
+        };
+        let message = format!("{err:#}");
+
+        assert!(message.contains("Failed to connect WebSocket"));
+    }
+
+    #[tokio::test]
+    async fn connect_stream_surfaces_http_handshake_failure() {
+        let server = crate::test_support::MockHttpServer::respond("500 Internal Server Error", "");
+        let url = server.base_url().replacen("http://", "ws://", 1);
+
+        let err = match connect_stream(&url, "mastodon-token").await {
+            Ok(_) => panic!("expected connect_stream to fail"),
+            Err(err) => err,
+        };
+        let message = format!("{err:#}");
+
+        assert!(message.contains("Failed to connect WebSocket"));
+    }
 }
