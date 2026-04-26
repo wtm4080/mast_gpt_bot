@@ -1,6 +1,6 @@
 use crate::config::BotConfig;
 use crate::conversation_store::ConversationStore;
-use crate::mastodon::{Notification, fetch_status_context, post_reply};
+use crate::mastodon::{Notification, Status, fetch_status_context, post_reply};
 use crate::util::strip_html;
 use anyhow::{Context as AnyhowContext, Result};
 use std::sync::Arc;
@@ -18,11 +18,41 @@ pub(crate) async fn handle_ws_text(
         return Ok(());
     };
 
+    handle_mention_notification(client, config, conv_store, notif).await
+}
+
+async fn handle_mention_notification(
+    client: &reqwest::Client,
+    config: &BotConfig,
+    conv_store: &Arc<ConversationStore>,
+    notif: Notification,
+) -> Result<()> {
     let status = match notif.status.as_ref() {
         Some(s) => s,
         None => return Ok(()),
     };
 
+    let reply_request = prepare_reply_request(client, config, conv_store, status, &notif).await?;
+
+    generate_and_post_reply(client, config, conv_store, status, &notif, reply_request).await;
+
+    Ok(())
+}
+
+struct ReplyRequest {
+    plain_text: String,
+    thread_key: String,
+    context_for_openai: Option<String>,
+    previous_response_id: Option<String>,
+}
+
+async fn prepare_reply_request(
+    client: &reqwest::Client,
+    config: &BotConfig,
+    conv_store: &Arc<ConversationStore>,
+    status: &Status,
+    notif: &Notification,
+) -> Result<ReplyRequest> {
     let plain = strip_html(&status.content);
     println!("(stream) Mention from @{}: {}", notif.account.acct, plain);
 
@@ -31,16 +61,33 @@ pub(crate) async fn handle_ws_text(
 
     let prev_response_id = load_previous_response_id(conv_store, &thread_key).await?;
     let context_for_openai =
-        select_context_for_openai(conversation_context.as_deref(), prev_response_id.as_ref());
+        select_context_for_openai(conversation_context.as_deref(), prev_response_id.as_ref())
+            .map(str::to_string);
 
+    Ok(ReplyRequest {
+        plain_text: plain,
+        thread_key,
+        context_for_openai,
+        previous_response_id: prev_response_id,
+    })
+}
+
+async fn generate_and_post_reply(
+    client: &reqwest::Client,
+    config: &BotConfig,
+    conv_store: &Arc<ConversationStore>,
+    status: &Status,
+    notif: &Notification,
+    reply_request: ReplyRequest,
+) {
     wait_for_rate_limit(config.reply_min_interval.as_millis() as u64).await;
 
     match crate::openai_api::generate_reply(
         client,
         config,
-        &plain,
-        context_for_openai,
-        prev_response_id,
+        &reply_request.plain_text,
+        reply_request.context_for_openai.as_deref(),
+        reply_request.previous_response_id,
     )
     .await
     {
@@ -48,14 +95,13 @@ pub(crate) async fn handle_ws_text(
             println!(" -> Reply: {}", reply_result.text);
             post_generated_reply(client, config, status, &notif.account.acct, &reply_result.text)
                 .await;
-            save_response_id(conv_store, &thread_key, &reply_result.response_id).await;
+            save_response_id(conv_store, &reply_request.thread_key, &reply_result.response_id)
+                .await;
         }
         Err(e) => {
             eprintln!("Failed to generate reply: {:?}", e);
         }
     }
-
-    Ok(())
 }
 
 fn parse_mention_notification(text: &str) -> Result<Option<Notification>> {
@@ -90,7 +136,7 @@ fn parse_mention_notification(text: &str) -> Result<Option<Notification>> {
 async fn fetch_conversation_context(
     client: &reqwest::Client,
     config: &BotConfig,
-    status: &crate::mastodon::Status,
+    status: &Status,
 ) -> (Option<String>, String) {
     match fetch_status_context(
         client,
@@ -148,7 +194,7 @@ fn select_context_for_openai<'a>(
 async fn post_generated_reply(
     client: &reqwest::Client,
     config: &BotConfig,
-    status: &crate::mastodon::Status,
+    status: &Status,
     account_acct: &str,
     reply_text: &str,
 ) {
@@ -248,6 +294,23 @@ mod tests {
         }"#;
 
         handle_ws_text(&client, &config, &store, text).await.unwrap();
+    }
+
+    #[test]
+    fn parses_human_mention_notification_with_status() {
+        let text = r#"{
+            "event":"notification",
+            "payload":"{\"id\":\"n1\",\"type\":\"mention\",\"status\":{\"id\":\"s1\",\"content\":\"<p>hello</p>\",\"visibility\":\"unlisted\",\"in_reply_to_id\":null,\"account\":{\"acct\":\"alice\",\"bot\":false}},\"account\":{\"acct\":\"alice\",\"bot\":false}}"
+        }"#;
+
+        let notif = parse_mention_notification(text).unwrap().unwrap();
+        let status = notif.status.unwrap();
+
+        assert_eq!(notif.id, "n1");
+        assert_eq!(notif.account.acct, "alice");
+        assert_eq!(status.id, "s1");
+        assert_eq!(status.content, "<p>hello</p>");
+        assert_eq!(status.visibility, "unlisted");
     }
 
     #[test]

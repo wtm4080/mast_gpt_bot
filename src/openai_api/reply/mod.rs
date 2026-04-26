@@ -82,6 +82,69 @@ fn build_reply_call<'a>(
     builder
 }
 
+async fn call_initial_reply(
+    client: &Client,
+    call_config: &ReplyCallConfig<'_>,
+    user_text: &str,
+    conversation_context: Option<&str>,
+    force_search: bool,
+    previous_response_id: Option<String>,
+    web_search_tools: &[Tool],
+) -> Result<ResponsesResult> {
+    let messages = build_initial_messages(user_text, conversation_context, force_search);
+    let builder = build_reply_call(
+        call_config,
+        messages,
+        140,
+        previous_response_id,
+        web_search_tools.to_vec(),
+    );
+
+    call_responses(client, builder, true).await
+}
+
+async fn retry_empty_or_incomplete_reply(
+    client: &Client,
+    call_config: &ReplyCallConfig<'_>,
+    user_text: &str,
+    conversation_context: Option<&str>,
+    current: ResponsesResult,
+    web_search_tools: Vec<Tool>,
+) -> Result<ResponsesResult> {
+    if !should_retry_empty_or_incomplete(&current) {
+        return Ok(current);
+    }
+
+    let retry_msgs = build_retry_messages(user_text, conversation_context);
+    let retry_builder = build_reply_call(call_config, retry_msgs, 120, None, web_search_tools);
+    let retry_res = call_responses(client, retry_builder, true).await?;
+
+    Ok(prefer_non_empty_retry(current, retry_res))
+}
+
+async fn retry_parrot_reply(
+    client: &Client,
+    call_config: &ReplyCallConfig<'_>,
+    user_text: &str,
+    conversation_context: Option<&str>,
+    force_search: bool,
+    current: ResponsesResult,
+) -> Result<ResponsesResult> {
+    if !should_retry_parrot(force_search, user_text, current.text.trim()) {
+        return Ok(current);
+    }
+
+    let retry_msgs = build_parrot_retry_messages(user_text, conversation_context);
+    let retry_builder = build_reply_call(call_config, retry_msgs, 1024, None, Vec::new());
+    let retry_res = call_responses(client, retry_builder, true).await?;
+
+    Ok(prefer_non_empty_retry(current, retry_res))
+}
+
+fn prefer_non_empty_retry(current: ResponsesResult, retry: ResponsesResult) -> ResponsesResult {
+    if retry.text.trim().is_empty() { current } else { retry }
+}
+
 pub async fn generate_reply(
     client: &Client,
     cfg: &BotConfig,
@@ -97,41 +160,36 @@ pub async fn generate_reply(
     let call_config =
         ReplyCallConfig { model, model_reply, api_key, temperature: cfg.reply_temperature };
 
-    let messages: Vec<ChatMessage> =
-        build_initial_messages(user_text, conversation_context, force_search);
     let web_search_tools = build_web_search_tools(cfg.enable_web_search, force_search);
 
-    let builder = build_reply_call(
+    let res = call_initial_reply(
+        client,
         &call_config,
-        messages,
-        140,
+        user_text,
+        conversation_context,
+        force_search,
         previous_response_id,
-        web_search_tools.clone(),
-    );
-
-    let mut res: ResponsesResult = call_responses(client, builder, true).await?;
-
-    if should_retry_empty_or_incomplete(&res) {
-        let retry_msgs = build_retry_messages(user_text, conversation_context);
-
-        let retry_builder = build_reply_call(&call_config, retry_msgs, 120, None, web_search_tools);
-
-        let retry_res: ResponsesResult = call_responses(client, retry_builder, true).await?;
-        if !retry_res.text.trim().is_empty() {
-            res = retry_res;
-        }
-    }
-
-    if should_retry_parrot(force_search, user_text, res.text.trim()) {
-        let retry_msgs = build_parrot_retry_messages(user_text, conversation_context);
-
-        let retry_builder = build_reply_call(&call_config, retry_msgs, 1024, None, Vec::new());
-
-        let retry_res: ResponsesResult = call_responses(client, retry_builder, true).await?;
-        if !retry_res.text.trim().is_empty() {
-            res = retry_res;
-        }
-    }
+        &web_search_tools,
+    )
+    .await?;
+    let res = retry_empty_or_incomplete_reply(
+        client,
+        &call_config,
+        user_text,
+        conversation_context,
+        res,
+        web_search_tools,
+    )
+    .await?;
+    let res = retry_parrot_reply(
+        client,
+        &call_config,
+        user_text,
+        conversation_context,
+        force_search,
+        res,
+    )
+    .await?;
 
     let final_text = final_reply_text(&res.text);
 
@@ -141,6 +199,10 @@ pub async fn generate_reply(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn message(role: &str, content: &str) -> ChatMessage {
+        ChatMessage { role: role.to_string(), content: content.to_string() }
+    }
 
     fn response(text: &str, status: Option<&str>) -> ResponsesResult {
         ResponsesResult {
@@ -183,5 +245,33 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn reply_call_builder_preserves_config_and_optional_fields() {
+        let call_config = ReplyCallConfig {
+            model: "base-model",
+            model_reply: "reply-model",
+            api_key: "api-key",
+            temperature: 0.5,
+        };
+        let tools = vec![Tool::WebSearchPreview { search_context_size: Some("low".into()) }];
+
+        let args = build_reply_call(
+            &call_config,
+            vec![message("user", "hello")],
+            140,
+            Some("resp_prev".into()),
+            tools,
+        );
+
+        assert_eq!(args.model, "base-model");
+        assert_eq!(args.model_reply, "reply-model");
+        assert_eq!(args.api_key, "api-key");
+        assert_eq!(args.temperature, Some(0.5));
+        assert_eq!(args.max_output_tokens, Some(140));
+        assert_eq!(args.previous_response_id.as_deref(), Some("resp_prev"));
+        assert_eq!(args.messages.len(), 1);
+        assert!(args.tools.is_some());
     }
 }
