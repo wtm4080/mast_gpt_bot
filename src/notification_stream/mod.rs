@@ -7,6 +7,7 @@ mod connection;
 mod context;
 mod handler;
 mod rate_limit;
+mod recoverable;
 
 pub async fn run_notification_stream(
     client: &reqwest::Client,

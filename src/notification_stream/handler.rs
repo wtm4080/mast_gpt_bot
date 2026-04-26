@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use super::context;
 use super::rate_limit::wait_for_rate_limit;
+use super::recoverable::{RecoverableFailure, log_recoverable_error};
 
 pub(crate) async fn handle_ws_text(
     client: &reqwest::Client,
@@ -99,7 +100,7 @@ async fn generate_and_post_reply(
                 .await;
         }
         Err(e) => {
-            eprintln!("Failed to generate reply: {:?}", e);
+            log_recoverable_error(RecoverableFailure::GenerateReply, &e);
         }
     }
 }
@@ -159,7 +160,7 @@ async fn fetch_conversation_context(
             (ctx_opt, root_id)
         }
         Err(e) => {
-            eprintln!("Failed to fetch status context: {:?}", e);
+            log_recoverable_error(RecoverableFailure::FetchStatusContext, &e);
             // コンテキスト取れなくても、とりあえずこのステータスIDを thread_key にする
             (None, status.id.clone())
         }
@@ -209,7 +210,7 @@ async fn post_generated_reply(
     )
     .await
     {
-        eprintln!("Failed to post reply: {:?}", e);
+        log_recoverable_error(RecoverableFailure::PostReply, &e);
     }
 }
 
@@ -220,7 +221,7 @@ async fn save_response_id(
 ) {
     // 4-2. このスレッドの last_response_id として保存
     if let Err(e) = conv_store.upsert_last_response_id(thread_key, response_id).await {
-        eprintln!("Failed to update last_response_id for thread {}: {:?}", thread_key, e);
+        log_recoverable_error(RecoverableFailure::SaveResponseId { thread_key }, &e);
     }
 }
 

@@ -7,6 +7,7 @@ use tokio_tungstenite::{connect_async, tungstenite::Message};
 use url::Url;
 
 use super::handler::handle_ws_text;
+use super::recoverable::{RecoverableFailure, log_recoverable_error};
 
 pub async fn run_notification_stream(
     client: &reqwest::Client,
@@ -28,7 +29,7 @@ pub async fn run_notification_stream(
                         Ok(Message::Text(text)) => {
                             if let Err(e) = handle_ws_text(client, config, &conv_store, &text).await
                             {
-                                eprintln!("Error handling stream message: {:?}", e);
+                                log_recoverable_error(RecoverableFailure::HandleStreamMessage, &e);
                             }
                         }
                         Ok(Message::Ping(_)) => {
@@ -42,14 +43,14 @@ pub async fn run_notification_stream(
                             // Binary などは無視
                         }
                         Err(e) => {
-                            eprintln!("WebSocket error: {:?}", e);
+                            log_recoverable_error(RecoverableFailure::WebSocket, &e);
                             break;
                         }
                     }
                 }
             }
             Err(e) => {
-                eprintln!("Failed to connect streaming API: {:?}", e);
+                log_recoverable_error(RecoverableFailure::ConnectStreamingApi, &e);
             }
         }
 
