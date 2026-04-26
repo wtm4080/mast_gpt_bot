@@ -2,8 +2,11 @@ use anyhow::Result;
 use reqwest::Client;
 
 use crate::config::BotConfig;
-use crate::openai_api::stream::{CallResponsesArgs, call_responses};
-use crate::openai_api::types::{ChatMessage, ResponsesResult, Tool};
+use crate::openai_api::call_config::{
+    OpenAiCallConfig, build_web_search_tools as build_openai_web_search_tools,
+};
+use crate::openai_api::stream::call_responses;
+use crate::openai_api::types::{ResponsesResult, Tool};
 
 use self::message_builder::{
     build_initial_messages, build_parrot_retry_messages, build_retry_messages,
@@ -25,11 +28,7 @@ const JSON_FALLBACK_REPLY: &str =
     "短く要点＋出典ドメインでまとめられなかったみたい。もう一度聞いて！";
 
 fn build_web_search_tools(enable_web_search: bool, force_search: bool) -> Vec<Tool> {
-    if enable_web_search || force_search {
-        vec![Tool::WebSearchPreview { search_context_size: Some("low".into()) }]
-    } else {
-        Vec::new()
-    }
+    build_openai_web_search_tools(enable_web_search || force_search, Some("low"))
 }
 
 fn should_retry_empty_or_incomplete(res: &ResponsesResult) -> bool {
@@ -49,42 +48,9 @@ fn final_reply_text(text: &str) -> String {
     }
 }
 
-struct ReplyCallConfig<'a> {
-    model: &'a str,
-    model_reply: &'a str,
-    api_key: &'a str,
-    temperature: f32,
-}
-
-fn build_reply_call<'a>(
-    call_config: &ReplyCallConfig<'a>,
-    messages: Vec<ChatMessage>,
-    max_output_tokens: u32,
-    previous_response_id: Option<String>,
-    tools: Vec<Tool>,
-) -> CallResponsesArgs<'a> {
-    let mut builder = CallResponsesArgs::new(
-        call_config.model,
-        call_config.model_reply,
-        call_config.api_key,
-        messages,
-    )
-    .temperature(call_config.temperature)
-    .max_output_tokens(max_output_tokens);
-
-    if let Some(prev) = previous_response_id {
-        builder = builder.previous_response_id(prev);
-    }
-    if !tools.is_empty() {
-        builder = builder.tools(tools);
-    }
-
-    builder
-}
-
 async fn call_initial_reply(
     client: &Client,
-    call_config: &ReplyCallConfig<'_>,
+    call_config: &OpenAiCallConfig<'_>,
     user_text: &str,
     conversation_context: Option<&str>,
     force_search: bool,
@@ -92,20 +58,14 @@ async fn call_initial_reply(
     web_search_tools: &[Tool],
 ) -> Result<ResponsesResult> {
     let messages = build_initial_messages(user_text, conversation_context, force_search);
-    let builder = build_reply_call(
-        call_config,
-        messages,
-        140,
-        previous_response_id,
-        web_search_tools.to_vec(),
-    );
+    let builder = call_config.build(messages, 140, previous_response_id, web_search_tools.to_vec());
 
     call_responses(client, builder, true).await
 }
 
 async fn retry_empty_or_incomplete_reply(
     client: &Client,
-    call_config: &ReplyCallConfig<'_>,
+    call_config: &OpenAiCallConfig<'_>,
     user_text: &str,
     conversation_context: Option<&str>,
     current: ResponsesResult,
@@ -116,7 +76,7 @@ async fn retry_empty_or_incomplete_reply(
     }
 
     let retry_msgs = build_retry_messages(user_text, conversation_context);
-    let retry_builder = build_reply_call(call_config, retry_msgs, 120, None, web_search_tools);
+    let retry_builder = call_config.build(retry_msgs, 120, None, web_search_tools);
     let retry_res = call_responses(client, retry_builder, true).await?;
 
     Ok(prefer_non_empty_retry(current, retry_res))
@@ -124,7 +84,7 @@ async fn retry_empty_or_incomplete_reply(
 
 async fn retry_parrot_reply(
     client: &Client,
-    call_config: &ReplyCallConfig<'_>,
+    call_config: &OpenAiCallConfig<'_>,
     user_text: &str,
     conversation_context: Option<&str>,
     force_search: bool,
@@ -135,7 +95,7 @@ async fn retry_parrot_reply(
     }
 
     let retry_msgs = build_parrot_retry_messages(user_text, conversation_context);
-    let retry_builder = build_reply_call(call_config, retry_msgs, 1024, None, Vec::new());
+    let retry_builder = call_config.build(retry_msgs, 1024, None, Vec::new());
     let retry_res = call_responses(client, retry_builder, true).await?;
 
     Ok(prefer_non_empty_retry(current, retry_res))
@@ -154,11 +114,7 @@ pub async fn generate_reply(
 ) -> Result<ReplyResult> {
     let force_search = should_force_search(user_text);
 
-    let model = &cfg.openai_model;
-    let model_reply = &cfg.openai_reply_model;
-    let api_key = &cfg.openai_api_key;
-    let call_config =
-        ReplyCallConfig { model, model_reply, api_key, temperature: cfg.reply_temperature };
+    let call_config = OpenAiCallConfig::for_reply(cfg);
 
     let web_search_tools = build_web_search_tools(cfg.enable_web_search, force_search);
 
@@ -199,6 +155,7 @@ pub async fn generate_reply(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::openai_api::types::ChatMessage;
 
     fn message(role: &str, content: &str) -> ChatMessage {
         ChatMessage { role: role.to_string(), content: content.to_string() }
@@ -249,21 +206,16 @@ mod tests {
 
     #[test]
     fn reply_call_builder_preserves_config_and_optional_fields() {
-        let call_config = ReplyCallConfig {
-            model: "base-model",
-            model_reply: "reply-model",
-            api_key: "api-key",
-            temperature: 0.5,
-        };
+        let mut cfg = crate::test_support::test_config();
+        cfg.openai_model = "base-model".to_string();
+        cfg.openai_reply_model = "reply-model".to_string();
+        cfg.openai_api_key = "api-key".to_string();
+        cfg.reply_temperature = 0.5;
+        let call_config = OpenAiCallConfig::for_reply(&cfg);
         let tools = vec![Tool::WebSearchPreview { search_context_size: Some("low".into()) }];
 
-        let args = build_reply_call(
-            &call_config,
-            vec![message("user", "hello")],
-            140,
-            Some("resp_prev".into()),
-            tools,
-        );
+        let args =
+            call_config.build(vec![message("user", "hello")], 140, Some("resp_prev".into()), tools);
 
         assert_eq!(args.model, "base-model");
         assert_eq!(args.model_reply, "reply-model");

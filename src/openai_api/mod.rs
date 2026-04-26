@@ -1,3 +1,4 @@
+mod call_config;
 mod free_toot;
 mod prompts;
 mod reply;

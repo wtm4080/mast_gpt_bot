@@ -4,6 +4,9 @@ use chrono_tz::Asia::Tokyo;
 use reqwest::Client;
 
 use crate::config::BotConfig;
+use crate::openai_api::call_config::{
+    OpenAiCallConfig, build_web_search_tools as build_openai_web_search_tools,
+};
 use crate::openai_api::prompts::PROMPTS;
 use crate::openai_api::stream::{CallResponsesArgs, call_responses};
 use crate::openai_api::types::{ChatMessage, Tool};
@@ -100,25 +103,25 @@ fn build_messages_for_free_toot_at(
     (messages, slot)
 }
 
+fn build_free_toot_tools(enable_web_search: bool) -> Vec<Tool> {
+    build_openai_web_search_tools(enable_web_search, None)
+}
+
+fn build_free_toot_call<'a>(
+    cfg: &'a BotConfig,
+    messages: Vec<ChatMessage>,
+    tools: Vec<Tool>,
+) -> CallResponsesArgs<'a> {
+    OpenAiCallConfig::for_free_toot(cfg).build(messages, 1024, None, tools)
+}
+
 pub async fn generate_free_toot(client: &Client, cfg: &BotConfig) -> Result<String> {
     let (messages, slot) = build_messages_for_free_toot();
     println!("[free toot] using {} prompt", slot);
 
-    let model = &cfg.openai_model;
-    let model_reply = &cfg.openai_reply_model;
-    let api_key = &cfg.openai_api_key;
-    let temperature = cfg.free_toot_temperature;
-
     // time ツールは存在しないので使わない。web_search は preview 名称。
-    let mut tools = Vec::new();
-    if cfg.enable_web_search {
-        tools.push(Tool::WebSearchPreview { search_context_size: None });
-    }
-
-    let args = CallResponsesArgs::new(model, model_reply, api_key, messages)
-        .temperature(temperature)
-        .max_output_tokens(1024)
-        .tools(tools);
+    let tools = build_free_toot_tools(cfg.enable_web_search);
+    let args = build_free_toot_call(cfg, messages, tools);
 
     let res = call_responses(client, args, false).await?;
 
@@ -128,6 +131,7 @@ pub async fn generate_free_toot(client: &Client, cfg: &BotConfig) -> Result<Stri
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::test_config;
 
     fn message(role: &str, content: &str) -> ChatMessage {
         ChatMessage { role: role.to_string(), content: content.to_string() }
@@ -173,5 +177,35 @@ mod tests {
         assert_eq!(messages[0].content, "first");
         assert_eq!(messages[1].content, "system");
         assert_eq!(messages[2].content, "春の朝のような投稿を生成してください。");
+    }
+
+    #[test]
+    fn free_toot_call_builder_preserves_generation_config() {
+        let cfg = test_config();
+
+        let args = build_free_toot_call(&cfg, vec![message("user", "hello")], Vec::new());
+
+        assert_eq!(args.model, "gpt-test");
+        assert_eq!(args.model_reply, "gpt-test-reply");
+        assert_eq!(args.api_key, "openai-token");
+        assert_eq!(args.temperature, Some(0.8));
+        assert_eq!(args.max_output_tokens, Some(1024));
+        assert_eq!(args.previous_response_id, None);
+        assert_eq!(args.messages.len(), 1);
+        assert!(args.tools.is_none());
+    }
+
+    #[test]
+    fn free_toot_web_search_tool_uses_no_context_size() {
+        assert!(build_free_toot_tools(false).is_empty());
+
+        let tools = build_free_toot_tools(true);
+
+        assert_eq!(tools.len(), 1);
+        match &tools[0] {
+            Tool::WebSearchPreview { search_context_size } => {
+                assert_eq!(search_context_size.as_deref(), None);
+            }
+        }
     }
 }
